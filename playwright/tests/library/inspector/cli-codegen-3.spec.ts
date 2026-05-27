@@ -898,11 +898,12 @@ await page.GetByTestId("testid").HoverAsync();`);
     const { page } = await openRecorder();
     await page.setContent('<div>hello</div>');
 
-    const assertTextButton = page.getByTitle('Assert text');
+    const assertAnythingButton = page.getByTitle('Assert Anything');
     const helloContent = page.getByText('hello');
 
-    await assertTextButton.click();
+    await assertAnythingButton.click();
     await helloContent.click();
+    await page.locator('x-pw-action-item').filter({ hasText: 'Assert text' }).click();
 
     const dialog = page.locator('x-pw-dialog');
     await expect(dialog).toBeVisible();
@@ -916,8 +917,9 @@ await page.GetByTestId("testid").HoverAsync();`);
     await page.locator('x-pw-dialog .accept').click();
     await expect(dialog).toBeHidden();
 
-    await assertTextButton.click();
+    await assertAnythingButton.click();
     await helloContent.click();
+    await page.locator('x-pw-action-item').filter({ hasText: 'Assert text' }).click();
     await expect(dialog).toBeVisible();
     // Like the user clicking outside the dialog
     await page.locator('x-pw-glass').click();

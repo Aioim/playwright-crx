@@ -140,26 +140,21 @@ export const test = crxTest.extend<{
         recordAssertion: async ({ page, recorderPage, recordAction }, run) => {
           await run(async (locator: Locator, name: AssertAction['name']) => {
             await recordAction(async () => {
+              await recorderPage.getByTitle('Assert Anything').click();
+              await locator.click();
               switch (name) {
                 case 'assertText':
-                  await recorderPage.getByTitle('Assert text').click();
-                  await locator.click();
+                  await page.locator('x-pw-action-item').filter({ hasText: 'Assert text' }).click();
                   await page.locator('x-pw-glass').getByTitle('Accept').click();
                   break;
                 case 'assertValue':
-                  await recorderPage.getByTitle('Assert value').click();
-                  await locator.click();
+                  await page.locator('x-pw-action-item').filter({ hasText: 'Assert value' }).click();
                   break;
                 case 'assertVisible':
-                  await recorderPage.getByTitle('Assert visibility').click();
-                  await locator.click();
+                  await page.locator('x-pw-action-item').filter({ hasText: 'Assert visibility' }).click();
                   break;
                 case 'assertSnapshot':
-                  // ensure snapshot is toggled (for some reason, it may take more than one click)
-                  const assertBtn = recorderPage.getByTitle('Assert snapshot');
-                  while (await assertBtn.evaluate(e => !e.classList.contains('toggled')))
-                    await assertBtn.click();
-                  await locator.click();
+                  await page.locator('x-pw-action-item').filter({ hasText: 'Assert snapshot' }).click();
                   break;
               }
             });

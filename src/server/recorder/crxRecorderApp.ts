@@ -83,7 +83,7 @@ export class CrxRecorderApp extends EventEmitter implements IRecorderApp {
 
     this._playInIncognito = options?.playInIncognito ?? false;
 
-    this._window = options?.window?.type === 'sidepanel' ? new SidepanelRecorderWindow(options.window.url) : new PopupRecorderWindow(options?.window?.url);
+    this._window = options?.window?.type === 'sidepanel' ? new SidepanelRecorderWindow(options.window.url, options.window.tabId) : new PopupRecorderWindow(options?.window?.url);
     this._window.onMessage = this._onMessage.bind(this);
     this._window.hideApp  = this._hide.bind(this);
 

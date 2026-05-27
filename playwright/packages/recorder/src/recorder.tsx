@@ -155,7 +155,7 @@ export const Recorder: React.FC = ({}) => {
       backend.highlightRequested({ ariaTemplate: fragment });
   }, [mode, backend]);
 
-  const isRecording = mode === 'recording' || mode === 'recording-inspecting' || mode === 'assertingText' || mode === 'assertingVisibility';
+  const isRecording = mode === 'recording' || mode === 'recording-inspecting' || mode === 'asserting';
 
   return <div className='recorder'>
     <Toolbar>
@@ -170,24 +170,12 @@ export const Recorder: React.FC = ({}) => {
           'standby': 'inspecting',
           'recording': 'recording-inspecting',
           'recording-inspecting': 'recording',
-          'assertingText': 'recording-inspecting',
-          'assertingVisibility': 'recording-inspecting',
-          'assertingValue': 'recording-inspecting',
-          'assertingSnapshot': 'recording-inspecting',
+          'asserting': 'recording-inspecting',
         }[mode] as Mode;
         backend.setMode({ mode: newMode }).catch(() => { });
       }}></ToolbarButton>
-      <ToolbarButton icon='eye' title='Assert visibility' toggled={mode === 'assertingVisibility'} disabled={mode === 'none' || mode === 'standby' || mode === 'inspecting'} onClick={() => {
-        backend.setMode({ mode: mode === 'assertingVisibility' ? 'recording' : 'assertingVisibility' });
-      }}></ToolbarButton>
-      <ToolbarButton icon='whole-word' title='Assert text' toggled={mode === 'assertingText'} disabled={mode === 'none' || mode === 'standby' || mode === 'inspecting'} onClick={() => {
-        backend.setMode({ mode: mode === 'assertingText' ? 'recording' : 'assertingText' });
-      }}></ToolbarButton>
-      <ToolbarButton icon='symbol-constant' title='Assert value' toggled={mode === 'assertingValue'} disabled={mode === 'none' || mode === 'standby' || mode === 'inspecting'} onClick={() => {
-        backend.setMode({ mode: mode === 'assertingValue' ? 'recording' : 'assertingValue' });
-      }}></ToolbarButton>
-      <ToolbarButton icon='gist' title='Assert snapshot' toggled={mode === 'assertingSnapshot'} disabled={mode === 'none' || mode === 'standby' || mode === 'inspecting'} onClick={() => {
-        backend.setMode({ mode: mode === 'assertingSnapshot' ? 'recording' : 'assertingSnapshot' });
+      <ToolbarButton icon='checklist' title='Assert Anything' toggled={mode === 'asserting'} disabled={mode === 'none' || mode === 'standby' || mode === 'inspecting'} onClick={() => {
+        backend.setMode({ mode: mode === 'asserting' ? 'recording' : 'asserting' });
       }}></ToolbarButton>
       <ToolbarSeparator />
       <ToolbarButton icon='files' title='Copy' disabled={!source || !source.text} onClick={() => {

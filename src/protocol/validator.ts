@@ -76,7 +76,7 @@ scheme.CrxApplicationDetachedEvent = tObject({
   tabId: tNumber,
 });
 scheme.CrxApplicationModeChangedEvent = tObject({
-  mode: tEnum(['none', 'recording', 'inspecting', 'assertingText', 'recording-inspecting', 'standby', 'assertingVisibility', 'assertingValue']),
+  mode: tEnum(['none', 'recording', 'inspecting', 'asserting', 'recording-inspecting', 'standby']),
 });
 scheme.CrxApplicationAttachParams = tObject({
   tabId: tNumber,
@@ -125,12 +125,13 @@ scheme.CrxApplicationNewPageResult = tObject({
   page: tChannel(['Page']),
 });
 scheme.CrxApplicationShowRecorderParams = tObject({
-  mode: tOptional(tEnum(['none', 'recording', 'inspecting', 'assertingText', 'recording-inspecting', 'standby', 'assertingVisibility', 'assertingValue'])),
+  mode: tOptional(tEnum(['none', 'recording', 'inspecting', 'asserting', 'recording-inspecting', 'standby'])),
   language: tOptional(tString),
   testIdAttributeName: tOptional(tString),
   playInIncognito: tOptional(tBoolean),
   window: tOptional(tObject({
     type: tOptional(tEnum(['popup', 'sidepanel'])),
+    tabId: tOptional(tNumber),
     url: tOptional(tString),
   })),
 });
@@ -138,7 +139,7 @@ scheme.CrxApplicationShowRecorderResult = tOptional(tObject({}));
 scheme.CrxApplicationHideRecorderParams = tOptional(tObject({}));
 scheme.CrxApplicationHideRecorderResult = tOptional(tObject({}));
 scheme.CrxApplicationSetModeParams = tObject({
-  mode: tEnum(['none', 'recording', 'inspecting', 'assertingText', 'recording-inspecting', 'standby', 'assertingVisibility', 'assertingValue']),
+  mode: tEnum(['none', 'recording', 'inspecting', 'asserting', 'recording-inspecting', 'standby']),
 });
 scheme.CrxApplicationSetModeResult = tOptional(tObject({}));
 scheme.CrxApplicationCloseParams = tOptional(tObject({}));

@@ -89,7 +89,7 @@ export type CrxApplicationDetachedEvent = {
   tabId: number,
 };
 export type CrxApplicationModeChangedEvent = {
-  mode: 'none' | 'recording' | 'inspecting' | 'assertingText' | 'recording-inspecting' | 'standby' | 'assertingVisibility' | 'assertingValue' | 'assertingSnapshot',
+  mode: 'none' | 'recording' | 'inspecting' | 'asserting' | 'recording-inspecting' | 'standby',
 };
 export type CrxApplicationAttachParams = {
   tabId: number,
@@ -179,6 +179,7 @@ export type CrxApplicationShowRecorderParams = {
   playInIncognito?: boolean,
   window?: {
     type?: 'popup' | 'sidepanel',
+    tabId?: number,
     url?: string,
   },
 };
@@ -189,6 +190,7 @@ export type CrxApplicationShowRecorderOptions = {
   playInIncognito?: boolean,
   window?: {
     type?: 'popup' | 'sidepanel',
+    tabId?: number,
     url?: string,
   },
 };

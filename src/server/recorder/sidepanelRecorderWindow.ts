@@ -18,13 +18,15 @@ import type { RecorderEventData, RecorderMessage, RecorderWindow } from './crxRe
 
 export class SidepanelRecorderWindow implements RecorderWindow {
   private _recorderUrl: string;
+  private _tabId?: number;
   private _portPromise: Promise<chrome.runtime.Port>;
   private _closed = true;
   onMessage?: (({ type, event, params }: RecorderEventData) => void) | undefined;
   hideApp?: (() => any) | undefined;
 
-  constructor(recorderUrl?: string) {
+  constructor(recorderUrl?: string, tabId?: number) {
     this._recorderUrl = recorderUrl ?? 'index.html';
+    this._tabId = tabId;
     this._portPromise = this._waitConnect();
   }
 
@@ -37,7 +39,7 @@ export class SidepanelRecorderWindow implements RecorderWindow {
   }
 
   async open() {
-    await chrome.sidePanel.setOptions({ path: this._recorderUrl });
+    await chrome.sidePanel.setOptions({ tabId: this._tabId, path: this._recorderUrl });
     await this._portPromise;
     this._closed = false;
   }

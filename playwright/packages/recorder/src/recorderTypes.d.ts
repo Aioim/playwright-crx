@@ -23,12 +23,9 @@ export type Mode =
   | 'inspecting'
   | 'recording'
   | 'none'
-  | 'assertingText'
+  | 'asserting'
   | 'recording-inspecting'
-  | 'standby'
-  | 'assertingVisibility'
-  | 'assertingValue'
-  | 'assertingSnapshot';
+  | 'standby';
 
 export type ElementInfo = {
   selector: string;

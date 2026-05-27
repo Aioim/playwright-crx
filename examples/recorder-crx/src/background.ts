@@ -23,7 +23,7 @@ import { addSettingsChangedListener, defaultSettings, loadSettings } from './set
 type CrxMode = Mode | 'detached';
 
 const stoppedModes: CrxMode[] = ['none', 'standby', 'detached'];
-const recordingModes: CrxMode[] = ['recording', 'assertingText', 'assertingVisibility', 'assertingValue', 'assertingSnapshot'];
+const recordingModes: CrxMode[] = ['recording', 'asserting'];
 
 // we must lazy initialize it
 let crxAppPromise: Promise<CrxApplication> | undefined;
@@ -117,7 +117,7 @@ async function attach(tab: chrome.tabs.Tab, mode?: Mode) {
 
   // we need to open sidepanel before any async call
   if (sidepanel)
-    await chrome.sidePanel.open({ windowId: tab.windowId });
+    await chrome.sidePanel.open({ tabId: tab.id! });
 
   // ensure one attachment at a time
   chrome.action.disable();
@@ -141,7 +141,7 @@ async function attach(tab: chrome.tabs.Tab, mode?: Mode) {
       await crxApp.recorder.show({
         mode: mode ?? 'recording',
         language: settings.targetLanguage,
-        window: { type: sidepanel ? 'sidepanel' : 'popup', url: 'index.html' },
+        window: { type: sidepanel ? 'sidepanel' : 'popup', tabId: tab.id, url: 'index.html' },
         playInIncognito: settings.playInIncognito,
       });
     }
