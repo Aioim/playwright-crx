@@ -87,6 +87,11 @@ and [`method: Reporter.onError`] is called when something went wrong outside of 
 
 If your custom reporter does not print anything to the terminal, implement [`method: Reporter.printsToStdio`] and return `false`. This way, Playwright will use one of the standard terminal reporters in addition to your custom reporter to enhance user experience.
 
+**Reporter errors**
+
+Playwright will swallow any errors thrown in your custom reporter methods. If you need to detect or fail on reporter
+errors, you must wrap and handle them yourself.
+
 **Merged report API notes**
 
 When merging multiple [`blob`](../test-reporters#blob-reporter) reports via [`merge-reports`](../test-sharding#merge-reports-cli) CLI
@@ -144,6 +149,12 @@ Called on some global error, for example unhandled exception in the worker proce
 - `error` <[TestError]>
 
 The error.
+
+### param: Reporter.onError.workerInfo
+* since: v1.60
+- `workerInfo` ?<[WorkerInfo]>
+
+Contains information about the worker that produced this error. `undefined` for errors that are not associated with a specific worker.
 
 ## optional async method: Reporter.onExit
 * since: v1.33

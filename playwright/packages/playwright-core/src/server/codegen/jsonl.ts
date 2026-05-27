@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { asLocator } from '../../utils';
+import { asLocator } from '@isomorphic/locatorGenerators';
 
 import type { Language, LanguageGenerator, LanguageGeneratorOptions } from './types';
 import type * as actions from '@recorder/actions';
@@ -31,6 +31,7 @@ export class JsonlLanguageGenerator implements LanguageGenerator {
       ...actionInContext.action,
       ...actionInContext.frame,
       locator,
+      ariaSnapshot: undefined,
     };
     return JSON.stringify(entry);
   }

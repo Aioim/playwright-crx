@@ -14,7 +14,17 @@
  * limitations under the License.
  */
 
-import type { FullConfig, FullResult, Reporter, Suite, TestCase, TestError, TestResult, TestStep } from '../../types/testReporter';
+import type { FullConfig, FullResult, Reporter, Suite, TestCase, TestError, TestResult, TestStep, WorkerInfo } from '../../types/testReporter';
+
+export interface ReportConfigureParams {
+  config: FullConfig;
+  reportPath: string;
+}
+
+export interface ReportEndParams {
+  reportPath: string;
+  result: FullResult;
+}
 
 export interface ReporterV2 {
   onConfigure?(config: FullConfig): void;
@@ -22,15 +32,20 @@ export interface ReporterV2 {
   onTestBegin?(test: TestCase, result: TestResult): void;
   onStdOut?(chunk: string | Buffer, test?: TestCase, result?: TestResult): void;
   onStdErr?(chunk: string | Buffer, test?: TestCase, result?: TestResult): void;
+  onTestPaused?(test: TestCase, result: TestResult): Promise<void>;
   onTestEnd?(test: TestCase, result: TestResult): void;
+  onReportConfigure?(params: ReportConfigureParams): void;
+  onReportEnd?(params: ReportEndParams): void;
   onEnd?(result: FullResult): Promise<{ status?: FullResult['status'] } | undefined | void> | void;
   onExit?(): void | Promise<void>;
-  onError?(error: TestError): void;
+  onError?(error: TestError, workerInfo?: WorkerInfo): void;
   onStepBegin?(test: TestCase, result: TestResult, step: TestStep): void;
   onStepEnd?(test: TestCase, result: TestResult, step: TestStep): void;
   printsToStdio?(): boolean;
   version(): 'v2';
 }
+
+export type AnyReporter = ReporterV2 | Reporter;
 
 type StdIOChunk = {
   chunk: string | Buffer;
@@ -49,7 +64,7 @@ export function wrapReporterAsV2(reporter: Reporter | ReporterV2): ReporterV2 {
 
 class ReporterV2Wrapper implements ReporterV2 {
   private _reporter: Reporter;
-  private _deferred: { error?: TestError, stdout?: StdIOChunk, stderr?: StdIOChunk }[] | null = [];
+  private _deferred: { error?: { error: TestError, workerInfo?: WorkerInfo }, stdout?: StdIOChunk, stderr?: StdIOChunk }[] | null = [];
   private _config!: FullConfig;
 
   constructor(reporter: Reporter) {
@@ -71,7 +86,7 @@ class ReporterV2Wrapper implements ReporterV2 {
     this._deferred = null;
     for (const item of deferred) {
       if (item.error)
-        this.onError(item.error);
+        this.onError(item.error.error, item.error.workerInfo);
       if (item.stdout)
         this.onStdOut(item.stdout.chunk, item.stdout.test, item.stdout.result);
       if (item.stderr)
@@ -111,12 +126,12 @@ class ReporterV2Wrapper implements ReporterV2 {
     await this._reporter.onExit?.();
   }
 
-  onError(error: TestError) {
+  onError(error: TestError, workerInfo?: WorkerInfo) {
     if (this._deferred) {
-      this._deferred.push({ error });
+      this._deferred.push({ error: { error, workerInfo } });
       return;
     }
-    this._reporter.onError?.(error);
+    this._reporter.onError?.(error, workerInfo);
   }
 
   onStepBegin(test: TestCase, result: TestResult, step: TestStep) {

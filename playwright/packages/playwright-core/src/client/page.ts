@@ -15,44 +15,46 @@
  * limitations under the License.
  */
 
-import { Accessibility } from './accessibility';
+import { assert } from '@isomorphic/assert';
+import { headersObjectToArray } from '@isomorphic/headers';
+import { trimStringWithEllipsis  } from '@isomorphic/stringUtils';
+import { urlMatches, urlMatchesEqual } from '@isomorphic/urlMatch';
+import { LongStandingScope } from '@isomorphic/manualPromise';
+import { isObject, isRegExp, isString } from '@isomorphic/rtti';
 import { Artifact } from './artifact';
 import { ChannelOwner } from './channelOwner';
 import { evaluationScript } from './clientHelper';
 import { Coverage } from './coverage';
+import { DisposableObject, DisposableStub } from './disposable';
 import { Download } from './download';
 import { ElementHandle, determineScreenshotType } from './elementHandle';
-import { TargetClosedError, isTargetClosedError, serializeError } from './errors';
+import { TargetClosedError, isTargetClosedError, parseError, serializeError } from './errors';
 import { Events } from './events';
 import { FileChooser } from './fileChooser';
 import { Frame, verifyLoadState } from './frame';
 import { HarRouter } from './harRouter';
 import { Keyboard, Mouse, Touchscreen } from './input';
-import { JSHandle, assertMaxArguments, parseResult, serializeArgument } from './jsHandle';
-import { Response, Route, RouteHandler, WebSocket,  WebSocketRoute, WebSocketRouteHandler, validateHeaders } from './network';
+import { WebStorage } from './webStorage';
+import { assertMaxArguments, parseResult, serializeArgument } from './jsHandle';
+import { Request, Response, Route, RouteHandler, WebSocket,  WebSocketRoute, WebSocketRouteHandler, validateHeaders } from './network';
 import { Video } from './video';
+import { Screencast } from './screencast';
 import { Waiter } from './waiter';
 import { Worker } from './worker';
 import { TimeoutSettings } from './timeoutSettings';
-import { assert } from '../utils/isomorphic/assert';
 import { mkdirIfNeeded } from './fileUtils';
-import { headersObjectToArray } from '../utils/isomorphic/headers';
-import { trimStringWithEllipsis  } from '../utils/isomorphic/stringUtils';
-import { urlMatches, urlMatchesEqual } from '../utils/isomorphic/urlMatch';
-import { LongStandingScope } from '../utils/isomorphic/manualPromise';
-import { isObject, isRegExp, isString } from '../utils/isomorphic/rtti';
-
+import { ConsoleMessage } from './consoleMessage';
 import type { BrowserContext } from './browserContext';
 import type { Clock } from './clock';
 import type { APIRequestContext } from './fetch';
 import type { WaitForNavigationOptions } from './frame';
 import type { FrameLocator, Locator, LocatorOptions } from './locator';
-import type { Request, RouteHandlerCallback, WebSocketRouteHandlerCallback } from './network';
+import type { RouteHandlerCallback, WebSocketRouteHandlerCallback } from './network';
 import type { FilePayload, Headers, LifecycleEvent, SelectOption, SelectOptionOptions, Size, TimeoutOptions, WaitForEventOptions, WaitForFunctionOptions } from './types';
 import type * as structs from '../../types/structs';
 import type * as api from '../../types/types';
-import type { ByRoleOptions } from '../utils/isomorphic/locatorUtils';
-import type { URLMatch } from '../utils/isomorphic/urlMatch';
+import type { ByRoleOptions } from '@isomorphic/locatorUtils';
+import type { URLMatch } from '@isomorphic/urlMatch';
 import type * as channels from '@protocol/channels';
 
 type PDFOptions = Omit<channels.PagePdfParams, 'width' | 'height' | 'margin'> & {
@@ -78,6 +80,7 @@ export type ExpectScreenshotOptions = Omit<channels.PageExpectScreenshotOptions,
 export class Page extends ChannelOwner<channels.PageChannel> implements api.Page {
   private _browserContext: BrowserContext;
   _ownedContext: BrowserContext | undefined;
+  _apiName = 'Page';
 
   private _mainFrame: Frame;
   private _frames = new Set<Frame>();
@@ -88,18 +91,20 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
   _routes: RouteHandler[] = [];
   _webSocketRoutes: WebSocketRouteHandler[] = [];
 
-  readonly accessibility: Accessibility;
   readonly coverage: Coverage;
   readonly keyboard: Keyboard;
   readonly mouse: Mouse;
   readonly request: APIRequestContext;
   readonly touchscreen: Touchscreen;
   readonly clock: Clock;
+  readonly screencast: Screencast;
+  readonly localStorage: WebStorage;
+  readonly sessionStorage: WebStorage;
 
 
   readonly _bindings = new Map<string, (source: structs.BindingSource, ...args: any[]) => any>();
   readonly _timeoutSettings: TimeoutSettings;
-  private _video: Video | null = null;
+  private _video: Video;
   readonly _opener: Page | null;
   private _closeReason: string | undefined;
   _closeWasCalled: boolean = false;
@@ -117,15 +122,17 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
 
   constructor(parent: ChannelOwner, type: string, guid: string, initializer: channels.PageInitializer) {
     super(parent, type, guid, initializer);
+    this._instrumentation.onPage(this);
     this._browserContext = parent as unknown as BrowserContext;
     this._timeoutSettings = new TimeoutSettings(this._platform, this._browserContext._timeoutSettings);
 
-    this.accessibility = new Accessibility(this._channel);
     this.keyboard = new Keyboard(this);
     this.mouse = new Mouse(this);
     this.request = this._browserContext.request;
     this.touchscreen = new Touchscreen(this);
     this.clock = this._browserContext.clock;
+    this.localStorage = new WebStorage(this, 'local');
+    this.sessionStorage = new WebStorage(this, 'session');
 
     this._mainFrame = Frame.from(initializer.mainFrame);
     this._mainFrame._page = this;
@@ -133,13 +140,17 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
     this._viewportSize = initializer.viewportSize;
     this._closed = initializer.isClosed;
     this._opener = Page.fromNullable(initializer.opener);
+    this._video = new Video(this, this._connection, initializer.video ? Artifact.from(initializer.video) : undefined);
+    this.screencast = new Screencast(this);
 
     this._channel.on('bindingCall', ({ binding }) => this._onBinding(BindingCall.from(binding)));
     this._channel.on('close', () => this._onClose());
     this._channel.on('crash', () => this._onCrash());
     this._channel.on('download', ({ url, suggestedFilename, artifact }) => {
       const artifactObject = Artifact.from(artifact);
-      this.emit(Events.Page.Download, new Download(this, url, suggestedFilename, artifactObject));
+      const download = new Download(this, url, suggestedFilename, artifactObject);
+      this.emit(Events.Page.Download, download);
+      this._browserContext.emit(Events.BrowserContext.Download, download);
     });
     this._channel.on('fileChooser', ({ element, isMultiple }) => this.emit(Events.Page.FileChooser, new FileChooser(this, ElementHandle.from(element), isMultiple)));
     this._channel.on('frameAttached', ({ frame }) => this._onFrameAttached(Frame.from(frame)));
@@ -147,10 +158,6 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
     this._channel.on('locatorHandlerTriggered', ({ uid }) => this._onLocatorHandlerTriggered(uid));
     this._channel.on('route', ({ route }) => this._onRoute(Route.from(route)));
     this._channel.on('webSocketRoute', ({ webSocketRoute }) => this._onWebSocketRoute(WebSocketRoute.from(webSocketRoute)));
-    this._channel.on('video', ({ artifact }) => {
-      const artifactObject = Artifact.from(artifact);
-      this._forceVideo()._artifactReady(artifactObject);
-    });
     this._channel.on('viewportSizeChanged', ({ viewportSize }) => this._viewportSize = viewportSize);
     this._channel.on('webSocket', ({ webSocket }) => this.emit(Events.Page.WebSocket, WebSocket.from(webSocket)));
     this._channel.on('worker', ({ worker }) => this._onWorker(Worker.from(worker)));
@@ -177,6 +184,7 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
     if (frame._parentFrame)
       frame._parentFrame._childFrames.add(frame);
     this.emit(Events.Page.FrameAttached, frame);
+    this._browserContext.emit(Events.BrowserContext.FrameAttached, frame);
   }
 
   private _onFrameDetached(frame: Frame) {
@@ -185,6 +193,7 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
     if (frame._parentFrame)
       frame._parentFrame._childFrames.delete(frame);
     this.emit(Events.Page.FrameDetached, frame);
+    this._browserContext.emit(Events.BrowserContext.FrameDetached, frame);
   }
 
   private async _onRoute(route: Route) {
@@ -192,7 +201,7 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
     const routeHandlers = this._routes.slice();
     for (const routeHandler of routeHandlers) {
       // If the page was closed we stall all requests right away.
-      if (this._closeWasCalled || this._browserContext._closingStatus !== 'none')
+      if (this._closeWasCalled || this._browserContext.isClosed())
         return;
       if (!routeHandler.matches(route.request().url()))
         continue;
@@ -203,7 +212,7 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
         this._routes.splice(index, 1);
       const handled = await routeHandler.handle(route);
       if (!this._routes.length)
-        this._wrapApiCall(() => this._updateInterceptionPatterns(), { internal: true }).catch(() => {});
+        this._updateInterceptionPatterns({ internal: true }).catch(() => {});
       if (handled)
         return;
     }
@@ -237,9 +246,9 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
   _onClose() {
     this._closed = true;
     this._browserContext._pages.delete(this);
-    this._browserContext._backgroundPages.delete(this);
     this._disposeHarRouters();
     this.emit(Events.Page.Close, this);
+    this._browserContext.emit(Events.BrowserContext.PageClose, this);
   }
 
   private _onCrash() {
@@ -283,19 +292,26 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
     this._timeoutSettings.setDefaultTimeout(timeout);
   }
 
-  private _forceVideo(): Video {
-    if (!this._video)
-      this._video = new Video(this, this._connection);
-    return this._video;
-  }
-
   video(): Video | null {
     // Note: we are creating Video object lazily, because we do not know
     // BrowserContextOptions when constructing the page - it is assigned
     // too late during launchPersistentContext.
     if (!this._browserContext._options.recordVideo)
       return null;
-    return this._forceVideo();
+    return this._video;
+  }
+
+  async pickLocator(): Promise<Locator> {
+    const { selector } = await this._channel.pickLocator({});
+    return this.locator(selector);
+  }
+
+  async cancelPickLocator(): Promise<void> {
+    await this._channel.cancelPickLocator({});
+  }
+
+  async hideHighlight(): Promise<void> {
+    await this._channel.hideHighlight({});
   }
 
   async $(selector: string, options?: { strict?: boolean }): Promise<ElementHandle<SVGElement | HTMLElement> | null> {
@@ -340,14 +356,16 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
   }
 
   async exposeFunction(name: string, callback: Function) {
-    await this._channel.exposeBinding({ name });
+    const result = await this._channel.exposeBinding({ name });
     const binding = (source: structs.BindingSource, ...args: any[]) => callback(...args);
     this._bindings.set(name, binding);
+    return DisposableObject.from(result.disposable);
   }
 
-  async exposeBinding(name: string, callback: (source: structs.BindingSource, ...args: any[]) => any, options: { handle?: boolean } = {}) {
-    await this._channel.exposeBinding({ name, needsHandle: options.handle });
+  async exposeBinding(name: string, callback: (source: structs.BindingSource, ...args: any[]) => any) {
+    const result = await this._channel.exposeBinding({ name });
     this._bindings.set(name, callback);
+    return DisposableObject.from(result.disposable);
   }
 
   async setExtraHTTPHeaders(headers: Headers) {
@@ -398,7 +416,7 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
     } finally {
       if (remove)
         this._locatorHandlers.delete(uid);
-      this._wrapApiCall(() => this._channel.resolveLocatorHandlerNoReply({ uid, remove }), { internal: true }).catch(() => {});
+      this._channel.resolveLocatorHandlerNoReply({ uid, remove }).catch(() => {});
     }
   }
 
@@ -511,12 +529,13 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
 
   async addInitScript(script: Function | string | { path?: string, content?: string }, arg?: any) {
     const source = await evaluationScript(this._platform, script, arg);
-    await this._channel.addInitScript({ source });
+    return DisposableObject.from((await this._channel.addInitScript({ source })).disposable);
   }
 
-  async route(url: URLMatch, handler: RouteHandlerCallback, options: { times?: number } = {}): Promise<void> {
+  async route(url: URLMatch, handler: RouteHandlerCallback, options: { times?: number } = {}): Promise<DisposableStub> {
     this._routes.unshift(new RouteHandler(this._platform, this._browserContext._options.baseURL, url, handler, options.times));
-    await this._updateInterceptionPatterns();
+    await this._updateInterceptionPatterns({ title: 'Route requests' });
+    return new DisposableStub(() => this.unroute(url, handler));
   }
 
   async routeFromHAR(har: string, options: { url?: string | RegExp, notFound?: 'abort' | 'fallback', update?: boolean, updateContent?: 'attach' | 'embed', updateMode?: 'minimal' | 'full'} = {}): Promise<void> {
@@ -524,7 +543,7 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
     if (!localUtils)
       throw new Error('Route from har is not supported in thin clients');
     if (options.update) {
-      await this._browserContext._recordIntoHAR(har, this, options);
+      await this._browserContext.tracing._recordIntoHAR(har, this, options);
       return;
     }
     const harRouter = await HarRouter.create(localUtils, har, options.notFound || 'abort', { urlMatch: options.url });
@@ -534,7 +553,7 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
 
   async routeWebSocket(url: URLMatch, handler: WebSocketRouteHandlerCallback): Promise<void> {
     this._webSocketRoutes.unshift(new WebSocketRouteHandler(this._browserContext._options.baseURL, url, handler));
-    await this._updateWebSocketInterceptionPatterns();
+    await this._updateWebSocketInterceptionPatterns({ title: 'Route WebSockets' });
   }
 
   private _disposeHarRouters() {
@@ -561,21 +580,21 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
 
   private async _unrouteInternal(removed: RouteHandler[], remaining: RouteHandler[], behavior?: 'wait'|'ignoreErrors'|'default'): Promise<void> {
     this._routes = remaining;
-    await this._updateInterceptionPatterns();
-    if (!behavior || behavior === 'default')
-      return;
-    const promises = removed.map(routeHandler => routeHandler.stop(behavior));
-    await Promise.all(promises);
+    if (behavior && behavior !== 'default') {
+      const promises = removed.map(routeHandler => routeHandler.stop(behavior));
+      await Promise.all(promises);
+    }
+    await this._updateInterceptionPatterns({ title: 'Unroute requests' });
   }
 
-  private async _updateInterceptionPatterns() {
+  private async _updateInterceptionPatterns(options: { internal: true } | { title: string }) {
     const patterns = RouteHandler.prepareInterceptionPatterns(this._routes);
-    await this._channel.setNetworkInterceptionPatterns({ patterns });
+    await this._wrapApiCall(() => this._channel.setNetworkInterceptionPatterns({ patterns }), options);
   }
 
-  private async _updateWebSocketInterceptionPatterns() {
+  private async _updateWebSocketInterceptionPatterns(options: { internal: true } | { title: string }) {
     const patterns = WebSocketRouteHandler.prepareInterceptionPatterns(this._webSocketRoutes);
-    await this._channel.setWebSocketInterceptionPatterns({ patterns });
+    await this._wrapApiCall(() => this._channel.setWebSocketInterceptionPatterns({ patterns }), options);
   }
 
   async screenshot(options: Omit<channels.PageScreenshotOptions, 'mask'> & TimeoutOptions & { path?: string, mask?: api.Locator[] } = {}): Promise<Buffer> {
@@ -628,12 +647,15 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
 
   async close(options: { runBeforeUnload?: boolean, reason?: string } = {}) {
     this._closeReason = options.reason;
-    this._closeWasCalled = true;
+    if (!options.runBeforeUnload)
+      this._closeWasCalled = true;
     try {
       if (this._ownedContext)
         await this._ownedContext.close();
+      else if (options.runBeforeUnload)
+        await this._channel.runBeforeUnload();
       else
-        await this._channel.close(options);
+        await this._channel.close({ reason: options.reason });
     } catch (e) {
       if (isTargetClosedError(e) && !options.runBeforeUnload)
         return;
@@ -663,6 +685,24 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
 
   async fill(selector: string, value: string, options?: channels.FrameFillOptions & TimeoutOptions) {
     return await this._mainFrame.fill(selector, value, options);
+  }
+
+  async clearConsoleMessages(): Promise<void> {
+    await this._channel.clearConsoleMessages();
+  }
+
+  async consoleMessages(options?: { filter?: 'all' | 'since-navigation' }): Promise<ConsoleMessage[]> {
+    const { messages } = await this._channel.consoleMessages({ filter: options?.filter });
+    return messages.map(message => new ConsoleMessage(this._platform, message, this, null));
+  }
+
+  async clearPageErrors(): Promise<void> {
+    await this._channel.clearPageErrors();
+  }
+
+  async pageErrors(options?: { filter?: 'all' | 'since-navigation' }): Promise<Error[]> {
+    const { errors } = await this._channel.pageErrors({ filter: options?.filter });
+    return errors.map(error => parseError(error));
   }
 
   locator(selector: string, options?: LocatorOptions): Locator {
@@ -789,6 +829,11 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
     return await this._mainFrame.waitForFunction(pageFunction, arg, options);
   }
 
+  async requests() {
+    const { requests } = await this._channel.requests();
+    return requests.map(request => Request.from(request));
+  }
+
   workers(): Worker[] {
     return [...this._workers];
   }
@@ -828,9 +873,13 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
     return result.pdf;
   }
 
-  async _snapshotForAI(): Promise<string> {
-    const result = await this._channel.snapshotForAI();
+  async ariaSnapshot(options: TimeoutOptions & { mode?: 'ai' | 'default', depth?: number, boxes?: boolean, _track?: string } = {}): Promise<string> {
+    const result = await this.mainFrame()._channel.ariaSnapshot({ timeout: this._timeoutSettings.timeout(options), track: options._track, mode: options.mode, depth: options.depth, boxes: options.boxes });
     return result.snapshot;
+  }
+
+  async _setDockTile(image: Buffer) {
+    await this._channel.setDockTile({ image });
   }
 }
 
@@ -851,11 +900,7 @@ export class BindingCall extends ChannelOwner<channels.BindingCallChannel> {
         page: frame._page!,
         frame
       };
-      let result: any;
-      if (this._initializer.handle)
-        result = await func(source, JSHandle.from(this._initializer.handle));
-      else
-        result = await func(source, ...this._initializer.args!.map(parseResult));
+      const result = await func(source, ...this._initializer.args.map(parseResult));
       this._channel.resolve({ result: serializeArgument(result) }).catch(() => {});
     } catch (e) {
       this._channel.reject({ error: serializeError(e) }).catch(() => {});

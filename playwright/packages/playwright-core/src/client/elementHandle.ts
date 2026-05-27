@@ -14,13 +14,13 @@
  * limitations under the License.
  */
 
+import { assert } from '@isomorphic/assert';
+import { isString } from '@isomorphic/rtti';
+import { getMimeTypeForPath } from '@isomorphic/mimeType';
 import { Frame } from './frame';
 import { JSHandle, parseResult, serializeArgument } from './jsHandle';
-import { assert } from '../utils/isomorphic/assert';
 import { fileUploadSizeLimit, mkdirIfNeeded } from './fileUtils';
-import { isString } from '../utils/isomorphic/rtti';
 import { WritableStream } from './writableStream';
-import { getMimeTypeForPath } from '../utils/isomorphic/mimeType';
 
 import type { BrowserContext } from './browserContext';
 import type { ChannelOwner } from './channelOwner';
@@ -28,7 +28,7 @@ import type { Locator } from './locator';
 import type { FilePayload, Rect, SelectOption, SelectOptionOptions, TimeoutOptions } from './types';
 import type * as structs from '../../types/structs';
 import type * as api from '../../types/types';
-import type { Platform } from './platform';
+import type { Platform } from '@isomorphic/platform';
 import type * as channels from '@protocol/channels';
 
 export class ElementHandle<T extends Node = Node> extends JSHandle<T> implements api.ElementHandle {
@@ -59,11 +59,6 @@ export class ElementHandle<T extends Node = Node> extends JSHandle<T> implements
 
   async contentFrame(): Promise<Frame | null> {
     return Frame.fromNullable((await this._elementChannel.contentFrame()).frame);
-  }
-
-  async _generateLocatorString(): Promise<string | null> {
-    const value = (await this._elementChannel.generateLocatorString()).value;
-    return value === undefined ? null : value;
   }
 
   async getAttribute(name: string): Promise<string | null> {
@@ -290,7 +285,7 @@ export async function convertInputFiles(platform: Platform, files: string | File
     const [localPaths, localDirectory] = await resolvePathsAndDirectoryForInputFiles(platform, items);
 
     if (context._connection.isRemote()) {
-      const files = localDirectory ? (await platform.fs().promises.readdir(localDirectory, { withFileTypes: true, recursive: true })).filter(f => f.isFile()).map(f => platform.path().join(f.path, f.name)) : localPaths!;
+      const files = localDirectory ? (await platform.fs().promises.readdir(localDirectory, { withFileTypes: true, recursive: true })).filter(f => f.isFile()).map(f => platform.path().join(f.parentPath, f.name)) : localPaths!;
       const { writableStreams, rootDir } = await context._wrapApiCall(async () => context._channel.createTempFiles({
         rootDirName: localDirectory ? platform.path().basename(localDirectory) : undefined,
         items: await Promise.all(files.map(async file => {

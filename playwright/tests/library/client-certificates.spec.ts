@@ -22,9 +22,10 @@ import type http2 from 'http2';
 import type http from 'http';
 import { expect, playwrightTest as base } from '../config/browserTest';
 import type net from 'net';
-import type { BrowserContextOptions } from 'packages/playwright-test';
+import type { BrowserContextOptions } from '../../packages/playwright-test';
 import { setupSocksForwardingServer } from '../config/proxy';
-const { createHttpsServer, createHttp2Server } = require('../../packages/playwright-core/lib/utils');
+import { utils } from '../../packages/playwright-core/lib/coreBundle';
+const { createHttpsServer, createHttp2Server } = utils;
 
 type TestOptions = {
   startCCServer(options?: {
@@ -153,6 +154,40 @@ test.describe('fetch', () => {
     expect(response.status()).toBe(200);
     expect(await response.text()).toContain('Hello Alice, your certificate was issued by localhost!');
     await request.dispose();
+  });
+
+  test('should not leak client certificate to cross-origin redirect target', async ({ playwright, startCCServer, asset }) => {
+    const targetURL = await startCCServer();
+
+    // Standalone HTTPS server (not cert-required) that 302-redirects to the cert-required server.
+    const redirectServer = createHttpsServer({
+      key: fs.readFileSync(asset('client-certificates/server/server_key.pem')),
+      cert: fs.readFileSync(asset('client-certificates/server/server_cert.pem')),
+    }, (req, res) => {
+      res.writeHead(302, { Location: targetURL });
+      res.end();
+    });
+    await new Promise<void>(f => redirectServer.listen(0, '127.0.0.1', () => f()));
+    const redirectAddr = redirectServer.address() as net.AddressInfo;
+    // Use 'localhost' for the redirect origin so it differs from the target's '127.0.0.1' origin
+    // even though both resolve to the loopback interface and share the same trusted CA.
+    const redirectURL = `https://localhost:${redirectAddr.port}/redir`;
+
+    const request = await playwright.request.newContext({
+      ignoreHTTPSErrors: true,
+      // Cert is scoped to the redirect *origin*, not the target — it must not follow the redirect.
+      clientCertificates: [{
+        origin: new URL(redirectURL).origin,
+        certPath: asset('client-certificates/client/trusted/cert.pem'),
+        keyPath: asset('client-certificates/client/trusted/key.pem'),
+      }],
+    });
+    const response = await request.get(redirectURL);
+    expect(response.url()).toBe(targetURL);
+    expect(response.status()).toBe(401);
+    expect(await response.text()).toContain('you need to provide a client certificate');
+    await request.dispose();
+    await new Promise<void>(f => redirectServer.close(() => f()));
   });
 
   test('pass with trusted client certificates in pfx format', async ({ playwright, startCCServer, asset }) => {
@@ -291,6 +326,23 @@ test.describe('browser', () => {
     await page.close();
   });
 
+  test('should pass through to non-matching origin with self-signed cert', async ({ browser, asset, httpsServer }) => {
+    httpsServer.setRoute('/hello.html', (req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end('<html><body><div data-testid="message">hello</div></body></html>');
+    });
+    const page = await browser.newPage({
+      clientCertificates: [{
+        origin: 'https://not-matching.com',
+        certPath: asset('client-certificates/client/trusted/cert.pem'),
+        keyPath: asset('client-certificates/client/trusted/key.pem'),
+      }],
+    });
+    await page.goto(httpsServer.PREFIX + '/hello.html');
+    await expect(page.getByTestId('message')).toHaveText('hello');
+    await page.close();
+  });
+
   test('should fail with no client certificates', async ({ browser, startCCServer, asset, browserName, isMac }) => {
     const serverURL = await startCCServer({ useFakeLocalhost: browserName === 'webkit' && isMac });
     const page = await browser.newPage({
@@ -369,6 +421,50 @@ test.describe('browser', () => {
     expect([...new Set(proxyServer.connectHosts)]).toEqual([`${host}:${new URL(serverURL).port}`]);
     await expect(page.getByTestId('message')).toHaveText('Hello Alice, your certificate was issued by localhost!');
     await page.close();
+  });
+
+  test('should pass with matching certificates and when a http proxy is used from env', async ({ mode, browser, startCCServer, asset, browserName, proxyServer, isMac }) => {
+    test.skip(mode !== 'default', 'Out of process transport does not allow us to set env vars dynamically');
+    process.env.HTTPS_PROXY = `http://localhost:${proxyServer.PORT}`;
+    const serverURL = await startCCServer({ useFakeLocalhost: browserName === 'webkit' && isMac });
+    proxyServer.forwardTo(parseInt(new URL(serverURL).port, 10), { allowConnectRequests: true });
+    const page = await browser.newPage({
+      ignoreHTTPSErrors: true,
+      clientCertificates: [{
+        origin: new URL(serverURL).origin,
+        certPath: asset('client-certificates/client/trusted/cert.pem'),
+        keyPath: asset('client-certificates/client/trusted/key.pem'),
+      }],
+    });
+    expect(proxyServer.connectHosts).toEqual([]);
+    await page.goto(serverURL);
+    const host = browserName === 'webkit' && isMac ? 'localhost' : '127.0.0.1';
+    expect([...new Set(proxyServer.connectHosts)]).toEqual([`${host}:${new URL(serverURL).port}`]);
+    await expect(page.getByTestId('message')).toHaveText('Hello Alice, your certificate was issued by localhost!');
+    await page.close();
+    delete process.env.HTTPS_PROXY;
+  });
+
+  test('should pass with matching certificates and when a http proxy is used from config but env is there', async ({ browser, startCCServer, asset, browserName, proxyServer, isMac }) => {
+    process.env.HTTPS_PROXY = `http://this-should-not-taken-into-account:4242`;
+    const serverURL = await startCCServer({ useFakeLocalhost: browserName === 'webkit' && isMac });
+    proxyServer.forwardTo(parseInt(new URL(serverURL).port, 10), { allowConnectRequests: true });
+    const page = await browser.newPage({
+      ignoreHTTPSErrors: true,
+      clientCertificates: [{
+        origin: new URL(serverURL).origin,
+        certPath: asset('client-certificates/client/trusted/cert.pem'),
+        keyPath: asset('client-certificates/client/trusted/key.pem'),
+      }],
+      proxy: { server: `localhost:${proxyServer.PORT}` }
+    });
+    expect(proxyServer.connectHosts).toEqual([]);
+    await page.goto(serverURL);
+    const host = browserName === 'webkit' && isMac ? 'localhost' : '127.0.0.1';
+    expect([...new Set(proxyServer.connectHosts)]).toEqual([`${host}:${new URL(serverURL).port}`]);
+    await expect(page.getByTestId('message')).toHaveText('Hello Alice, your certificate was issued by localhost!');
+    await page.close();
+    delete process.env.HTTPS_PROXY;
   });
 
   test('should pass with matching certificates and when a socks proxy is used', async ({ browser, startCCServer, asset, browserName, isMac }) => {
@@ -508,6 +604,7 @@ test.describe('browser', () => {
           'Content-Encoding': 'gzip',
           'Transfer-Encoding': 'chunked'
         });
+        res.flushHeaders();
 
         await renegotiate();
 
@@ -665,14 +762,15 @@ test.describe('browser', () => {
   });
 
   test('should have ignoreHTTPSErrors=false by default', async ({ browser, httpsServer, asset, browserName, platform }) => {
+    const targetURL = browserName === 'webkit' && platform === 'darwin' ? httpsServer.EMPTY_PAGE.replace('localhost', 'local.playwright') : httpsServer.EMPTY_PAGE;
     const page = await browser.newPage({
       clientCertificates: [{
-        origin: 'https://just-there-that-the-client-certificates-proxy-server-is-getting-launched.com',
+        origin: new URL(targetURL).origin,
         certPath: asset('client-certificates/client/trusted/cert.pem'),
         keyPath: asset('client-certificates/client/trusted/key.pem'),
       }],
     });
-    await page.goto(browserName === 'webkit' && platform === 'darwin' ? httpsServer.EMPTY_PAGE.replace('localhost', 'local.playwright') : httpsServer.EMPTY_PAGE);
+    await page.goto(targetURL);
     await expect(page.getByText('Playwright client-certificate error: self-signed certificate')).toBeVisible();
     await page.close();
   });
@@ -734,7 +832,7 @@ test.describe('browser', () => {
     const serverURL = await startCCServer({ http2: true });
     const page = await browser.newPage({
       clientCertificates: [{
-        origin: 'https://just-there-that-the-client-certificates-proxy-server-is-getting-launched.com',
+        origin: new URL(serverURL).origin,
         certPath: asset('client-certificates/client/trusted/cert.pem'),
         keyPath: asset('client-certificates/client/trusted/key.pem'),
       }],

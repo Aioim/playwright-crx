@@ -29,6 +29,9 @@ const testDir = path.join(__dirname, '..');
 const config: Config<ServerWorkerOptions & PlaywrightWorkerOptions & PlaywrightTestOptions> = {
   testDir,
   outputDir,
+  expect: {
+    timeout: 10000,
+  },
   timeout: 120000,
   globalTimeout: 7200000,
   workers: 1,
@@ -37,6 +40,7 @@ const config: Config<ServerWorkerOptions & PlaywrightWorkerOptions & PlaywrightT
   reporter: process.env.CI ? [
     ['dot'],
     ['json', { outputFile: path.join(outputDir, 'report.json') }],
+    ['blob'],
   ] : 'line',
   projects: [],
 };

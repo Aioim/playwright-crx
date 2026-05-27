@@ -29,7 +29,6 @@ interface Embedder {
   __pw_recorderSetMode(mode: Mode): Promise<void>;
   __pw_recorderSetOverlayState(state: OverlayState): Promise<void>;
   __pw_refreshOverlay(): void;
-  __pw_uninstall(): void;
 }
 
 export class PollingRecorder implements RecorderDelegate {
@@ -38,8 +37,8 @@ export class PollingRecorder implements RecorderDelegate {
   private _pollRecorderModeTimer: number | undefined;
   private _lastStateJSON: string | undefined;
 
-  constructor(injectedScript: InjectedScript) {
-    this._recorder = new Recorder(injectedScript);
+  constructor(injectedScript: InjectedScript, options?: { recorderMode?: 'default' | 'api', hideToolbar?: boolean }) {
+    this._recorder = new Recorder(injectedScript, options);
     this._embedder = injectedScript.window as any;
 
     injectedScript.onGlobalListenersRemoved.add(() => this._recorder.installListeners());
@@ -48,11 +47,7 @@ export class PollingRecorder implements RecorderDelegate {
       this._lastStateJSON = undefined;
       this._pollRecorderMode().catch(e => console.log(e)); // eslint-disable-line no-console
     };
-    const uninstall = () => {
-      this._recorder.uninstall();
-    };
     this._embedder.__pw_refreshOverlay = refreshOverlay;
-    this._embedder.__pw_uninstall = uninstall;
     refreshOverlay();
   }
 

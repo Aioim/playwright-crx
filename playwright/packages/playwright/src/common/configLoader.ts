@@ -17,12 +17,11 @@
 import fs from 'fs';
 import path from 'path';
 
-import { isRegExp } from 'playwright-core/lib/utils';
+import { isRegExp } from '@isomorphic/rtti';
 
 import { requireOrImport, setSingleTSConfig, setTransformConfig } from '../transform/transform';
-import { errorWithFile, fileIsModule } from '../util';
+import { errorWithFile } from '../util';
 import { FullConfigInternal } from './config';
-import { configureESMLoader, configureESMLoaderTransformConfig, registerESMLoader } from './esmLoaderHost';
 import { addToCompilationCache } from '../transform/compilationCache';
 
 import type { ConfigLocation } from './config';
@@ -34,6 +33,7 @@ export const defineConfig = (...configs: any[]) => {
   let result = configs[0];
   for (let i = 1; i < configs.length; ++i) {
     const config = configs[i];
+    const prevProjects = result.projects;
     result = {
       ...result,
       ...config,
@@ -63,7 +63,7 @@ export const defineConfig = (...configs: any[]) => {
       projectOverrides.set(project.name, project);
 
     const projects = [];
-    for (const project of result.projects || []) {
+    for (const project of prevProjects || []) {
       const projectOverride = projectOverrides.get(project.name);
       if (projectOverride) {
         projects.push({
@@ -100,17 +100,8 @@ async function loadUserConfig(location: ConfigLocation): Promise<Config> {
 }
 
 export async function loadConfig(location: ConfigLocation, overrides?: ConfigCLIOverrides, ignoreProjectDependencies = false, metadata?: Config['metadata']): Promise<FullConfigInternal> {
-  // 0. Setup ESM loader if needed.
-  if (!registerESMLoader()) {
-    // In Node.js < 18, complain if the config file is ESM. Historically, we would restart
-    // the process with --loader, but now we require newer Node.js.
-    if (location.resolvedConfigFile && fileIsModule(location.resolvedConfigFile))
-      throw errorWithFile(location.resolvedConfigFile, `Playwright requires Node.js 18.19 or higher to load esm modules. Please update your version of Node.js.`);
-  }
-
-  // 1. Setup tsconfig; configure ESM loader with tsconfig and compilation cache.
-  setSingleTSConfig(overrides?.tsconfig);
-  await configureESMLoader();
+  // 1. Set the initial tsconfig before loading the config file.
+  await setSingleTSConfig(overrides?.tsconfig);
 
   // 2. Load and validate playwright config.
   const userConfig = await loadUserConfig(location);
@@ -127,12 +118,10 @@ export async function loadConfig(location: ConfigLocation, overrides?: ConfigCLI
   // 3. Load transform options from the playwright config.
   const babelPlugins = (userConfig as any)['@playwright/test']?.babelPlugins || [];
   const external = userConfig.build?.external || [];
-  setTransformConfig({ babelPlugins, external });
+  const jsxImportSource = path.dirname(require.resolve('playwright'));
+  await setTransformConfig({ babelPlugins, external, jsxImportSource });
   if (!overrides?.tsconfig)
-    setSingleTSConfig(fullConfig?.singleTSConfigPath);
-
-  // 4. Send transform options to ESM loader.
-  await configureESMLoaderTransformConfig();
+    await setSingleTSConfig(fullConfig?.singleTSConfigPath);
 
   return fullConfig;
 }
@@ -325,6 +314,19 @@ function validateProject(file: string, project: Project, title: string) {
       throw errorWithFile(file, `${title}.workers must be a positive number`);
     else if (typeof project.workers === 'string' && !project.workers.endsWith('%'))
       throw errorWithFile(file, `${title}.workers must be a number or percentage`);
+  }
+
+  if ('webServer' in project && project.webServer !== undefined) {
+    const webServer = project.webServer;
+    const isArray = Array.isArray(webServer);
+    const items = isArray ? webServer : [webServer];
+    items.forEach((item, index) => {
+      const itemTitle = isArray ? `${title}.webServer[${index}]` : `${title}.webServer`;
+      if (!item || typeof item !== 'object')
+        throw errorWithFile(file, `${itemTitle} must be an object`);
+      if (item.command !== undefined && (typeof item.command !== 'string' || !item.command))
+        throw errorWithFile(file, `${itemTitle}.command must be a non-empty string`);
+    });
   }
 }
 

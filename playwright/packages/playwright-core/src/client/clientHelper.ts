@@ -15,12 +15,11 @@
  * limitations under the License.
  */
 
-import { isString } from '../utils/isomorphic/rtti';
+import { isString } from '@isomorphic/rtti';
 
-import type * as types from './types';
-import type { Platform } from './platform';
+import type { Platform } from '@isomorphic/platform';
 
-export function envObjectToArray(env: types.Env): { name: string, value: string }[] {
+export function envObjectToArray(env: NodeJS.ProcessEnv): { name: string, value: string }[] {
   const result: { name: string, value: string }[] = [];
   for (const name in env) {
     if (!Object.is(env[name], undefined))

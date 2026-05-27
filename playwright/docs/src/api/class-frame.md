@@ -482,6 +482,9 @@ Optional event-specific initialization properties.
 ### option: Frame.dragAndDrop.targetPosition = %%-input-target-position-%%
 * since: v1.14
 
+### option: Frame.dragAndDrop.steps = %%-input-drag-steps-%%
+* since: v1.57
+
 ## async method: Frame.evalOnSelector
 * since: v1.9
 * discouraged: This method does not wait for the element to pass the actionability
@@ -677,7 +680,7 @@ Console.WriteLine(await frame.EvaluateAsync<int>("1 + 2")); // prints "3"
 [ElementHandle] instances can be passed as an argument to the [`method: Frame.evaluate`]:
 
 ```js
-const bodyHandle = await frame.evaluate('document.body');
+const bodyHandle = await frame.evaluateHandle('document.body');
 const html = await frame.evaluate(([body, suffix]) =>
   body.innerHTML + suffix, [bodyHandle, 'hello'],
 );
@@ -685,25 +688,25 @@ await bodyHandle.dispose();
 ```
 
 ```java
-ElementHandle bodyHandle = frame.evaluate("document.body");
+ElementHandle bodyHandle = frame.evaluateHandle("document.body");
 String html = (String) frame.evaluate("([body, suffix]) => body.innerHTML + suffix", Arrays.asList(bodyHandle, "hello"));
 bodyHandle.dispose();
 ```
 
 ```python async
-body_handle = await frame.evaluate("document.body")
+body_handle = await frame.evaluate_handle("document.body")
 html = await frame.evaluate("([body, suffix]) => body.innerHTML + suffix", [body_handle, "hello"])
 await body_handle.dispose()
 ```
 
 ```python sync
-body_handle = frame.evaluate("document.body")
+body_handle = frame.evaluate_handle("document.body")
 html = frame.evaluate("([body, suffix]) => body.innerHTML + suffix", [body_handle, "hello"])
 body_handle.dispose()
 ```
 
 ```csharp
-var bodyHandle = await frame.EvaluateAsync("document.body");
+var bodyHandle = await frame.EvaluateHandleAsync("document.body");
 var html = await frame.EvaluateAsync<string>("([body, suffix]) => body.innerHTML + suffix", new object [] { bodyHandle, "hello" });
 await bodyHandle.DisposeAsync();
 ```
@@ -770,11 +773,11 @@ JSHandle aHandle = frame.evaluateHandle("document"); // Handle for the "document
 ```
 
 ```python async
-a_handle = await page.evaluate_handle("document") # handle for the "document"
+a_handle = await frame.evaluate_handle("document") # handle for the "document"
 ```
 
 ```python sync
-a_handle = page.evaluate_handle("document") # handle for the "document"
+a_handle = frame.evaluate_handle("document") # handle for the "document"
 ```
 
 ```csharp
@@ -800,15 +803,15 @@ resultHandle.dispose();
 ```
 
 ```python async
-a_handle = await page.evaluate_handle("document.body")
-result_handle = await page.evaluate_handle("body => body.innerHTML", a_handle)
+a_handle = await frame.evaluate_handle("document.body")
+result_handle = await frame.evaluate_handle("body => body.innerHTML", a_handle)
 print(await result_handle.json_value())
 await result_handle.dispose()
 ```
 
 ```python sync
-a_handle = page.evaluate_handle("document.body")
-result_handle = page.evaluate_handle("body => body.innerHTML", a_handle)
+a_handle = frame.evaluate_handle("document.body")
+result_handle = frame.evaluate_handle("body => body.innerHTML", a_handle)
 print(result_handle.json_value())
 result_handle.dispose()
 ```
@@ -1035,6 +1038,8 @@ Attribute name to get the value for.
 * since: v1.27
 
 ### option: Frame.getByRole.exact = %%-locator-get-by-role-option-exact-%%
+
+### option: Frame.getByRole.description = %%-locator-get-by-role-option-description-%%
 
 ## method: Frame.getByTestId
 * since: v1.27
@@ -2074,7 +2079,10 @@ a navigation.
 ### param: Frame.waitForNavigation.action = %%-csharp-wait-for-event-action-%%
 * since: v1.12
 
-### option: Frame.waitForNavigation.url = %%-wait-for-navigation-url-%%
+### option: Frame.waitForNavigation.url = %%-js-wait-for-navigation-url-%%
+* since: v1.8
+
+### option: Frame.waitForNavigation.url = %%-python-csharp-java-wait-for-navigation-url-%%
 * since: v1.8
 
 ### option: Frame.waitForNavigation.waitUntil = %%-navigation-wait-until-%%
@@ -2270,7 +2278,10 @@ await frame.ClickAsync("a.delayed-navigation"); // clicking the link will indire
 await frame.WaitForURLAsync("**/target.html");
 ```
 
-### param: Frame.waitForURL.url = %%-wait-for-navigation-url-%%
+### param: Frame.waitForURL.url = %%-js-wait-for-navigation-url-%%
+* since: v1.11
+
+### param: Frame.waitForURL.url = %%-python-csharp-java-wait-for-navigation-url-%%
 * since: v1.11
 
 ### option: Frame.waitForURL.timeout = %%-navigation-timeout-%%

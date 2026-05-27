@@ -14,10 +14,10 @@
  * limitations under the License.
  */
 
-import type { BrowserContextOptions, LaunchOptions } from '../../../types/types';
-import type { Language } from '../../utils';
+import type { BrowserContextOptions, LaunchOptions } from '../../..';
 import type * as actions from '@recorder/actions';
-export type { Language } from '../../utils';
+import type { Language } from '@isomorphic/locatorGenerators';
+export type { Language };
 
 export type LanguageGeneratorOptions = {
   browserName: string;
@@ -25,6 +25,7 @@ export type LanguageGeneratorOptions = {
   contextOptions: BrowserContextOptions;
   deviceName?: string;
   saveStorage?: string;
+  generateAutoExpect?: boolean;
 };
 
 export interface LanguageGenerator {
@@ -32,7 +33,7 @@ export interface LanguageGenerator {
   groupName: string;
   name: string;
   highlighter: Language;
-  generateHeader(options: LanguageGeneratorOptions, includeContext?: boolean): string;
+  generateHeader(options: LanguageGeneratorOptions): string;
   generateAction(actionInContext: actions.ActionInContext): string;
   generateFooter(saveStorage: string | undefined): string;
 }

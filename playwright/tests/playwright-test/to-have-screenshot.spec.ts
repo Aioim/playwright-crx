@@ -124,6 +124,54 @@ test('should not retry serial mode suites with missing expectation errors', asyn
   expect(result.exitCode).toBe(1);
 });
 
+test('should respect toHaveScreenshot timeout from config', async ({ runInlineTest }, testInfo) => {
+  const infiniteAnimationURL = pathToFileURL(path.join(__dirname, '../assets/rotate-z.html'));
+  const result = await runInlineTest({
+    ...playwrightConfig({
+      expect: {
+        toHaveScreenshot: {
+          animations: 'allow',
+          timeout: 2000,
+        },
+      },
+    }),
+    'a.spec.js': `
+      const { test, expect } = require('@playwright/test');
+      test('is a test', async ({ page }) => {
+        await page.goto('${infiniteAnimationURL}');
+        await expect(page).toHaveScreenshot();
+      });
+    `
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toContain(`Timeout 2000ms exceeded`);
+  expect(result.output).toContain(`Expect "toHaveScreenshot" with timeout 2000ms`);
+});
+
+test('should let toHaveScreenshot call options override config timeout', async ({ runInlineTest }, testInfo) => {
+  const infiniteAnimationURL = pathToFileURL(path.join(__dirname, '../assets/rotate-z.html'));
+  const result = await runInlineTest({
+    ...playwrightConfig({
+      expect: {
+        toHaveScreenshot: {
+          animations: 'allow',
+          timeout: 30000,
+        },
+      },
+    }),
+    'a.spec.js': `
+      const { test, expect } = require('@playwright/test');
+      test('is a test', async ({ page }) => {
+        await page.goto('${infiniteAnimationURL}');
+        await expect(page).toHaveScreenshot({ timeout: 2000 });
+      });
+    `
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toContain(`Timeout 2000ms exceeded`);
+  expect(result.output).toContain(`Expect "toHaveScreenshot" with timeout 2000ms`);
+});
+
 test.describe('expect config animations option', () => {
   test('disabled', async ({ runInlineTest }, testInfo) => {
     const cssTransitionURL = pathToFileURL(path.join(__dirname, '../assets/css-transition.html'));
@@ -157,6 +205,8 @@ test.describe('expect config animations option', () => {
       `
     }, { 'update-snapshots': true });
     expect(result.exitCode).toBe(1);
+    expect(result.output).toContain('is-a-test-1-actual.png');
+    expect(result.output).toContain('is-a-test-1-previous.png');
     expect(result.output).toContain('is-a-test-1-diff.png');
   });
 });
@@ -257,16 +307,17 @@ test('should report toHaveScreenshot step with expectation name in title', async
   expect(result.exitCode).toBe(0);
   expect(result.outputLines).toEqual([
     `end [pw:api] Launch browser`,
-    `end [fixture] browser`,
+    `end [fixture] Fixture "browser"`,
     `end [pw:api] Create context`,
-    `end [fixture] context`,
+    `end [fixture] Fixture "context"`,
     `end [pw:api] Create page`,
-    `end [fixture] page`,
+    `end [fixture] Fixture "page"`,
     `end [hook] Before Hooks`,
-    `end [expect] toHaveScreenshot(foo.png)`,
-    `end [expect] toHaveScreenshot(is-a-test-1.png)`,
-    `end [fixture] page`,
-    `end [fixture] context`,
+    `end [expect] Expect "toHaveScreenshot(foo.png)"`,
+    `end [expect] Expect "toHaveScreenshot(is-a-test-1.png)"`,
+    `end [fixture] Fixture "page"`,
+    `end [pw:api] Close context`,
+    `end [fixture] Fixture "context"`,
     `end [hook] After Hooks`,
   ]);
 });
@@ -700,7 +751,7 @@ test('should attach missing expectations to right step', async ({ runInlineTest 
   }, { reporter: '' });
 
   expect(result.exitCode).toBe(1);
-  expect(result.outputLines).toEqual(['[expect] toHaveScreenshot(snapshot.png): snapshot-expected.png, snapshot-actual.png']);
+  expect(result.outputLines).toEqual(['[expect] Expect "toHaveScreenshot(snapshot.png)": snapshot-expected.png, snapshot-actual.png']);
 });
 
 test('shouldn\'t write missing expectations locally for negated matcher', async ({ runInlineTest }, testInfo) => {
@@ -1347,8 +1398,26 @@ test('should throw pretty error if expected PNG file is not a PNG', async ({ run
     `,
   });
   expect(result.exitCode).toBe(1);
-  expect(result.output).toContain('could not decode image as PNG.');
-  expect(result.output).toContain('could not decode image as JPEG.');
+  expect(result.output).toContain('Could not decode expected image as PNG.');
+  expect(result.output).toContain('Could not decode expected image as JPEG.');
+});
+
+test('should throw pretty error if expected PNG file is not a PNG while rebasing', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    ...playwrightConfig({
+      snapshotPathTemplate: '__screenshots__/{testFilePath}/{arg}{ext}',
+    }),
+    '__screenshots__/a.spec.js/snapshot.png': 'not a png',
+    'a.spec.js': `
+      const { test, expect } = require('@playwright/test');
+      test('png', async ({ page }) => {
+        await expect(page).toHaveScreenshot('snapshot.png');
+      });
+    `,
+  }, { 'update-snapshots': true });
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toContain('Failed to re-generate expected.');
+  expect(result.output).toContain('Could not decode expected image as PNG.');
 });
 
 test('should support maskColor option', async ({ runInlineTest }) => {
@@ -1562,4 +1631,21 @@ test.describe('update-snapshots', () => {
     expect(comparePNGs(newBaseline, whiteImage)).toBe(null);
     expect(comparePNGs(newBaseline, EXPECTED_SNAPSHOT)).not.toBe(null);
   });
+});
+
+test('should hide overlays during toHaveScreenshot', async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    ...playwrightConfig({
+      snapshotPathTemplate: '__screenshots__/{testFilePath}/{arg}{ext}',
+    }),
+    '__screenshots__/a.spec.js/snapshot.png': whiteImage,
+    'a.spec.js': `
+      const { test, expect } = require('@playwright/test');
+      test('is a test', async ({ page }) => {
+        await page.screencast.showOverlay('<div style="position:absolute;inset:0;background:red"></div>');
+        await expect(page).toHaveScreenshot('snapshot.png');
+      });
+    `
+  });
+  expect(result.exitCode).toBe(0);
 });

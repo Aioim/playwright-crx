@@ -21,7 +21,6 @@ export interface TestRunnerPlugin {
   name: string;
   setup?(config: FullConfig, configDir: string, reporter: ReporterV2): Promise<void>;
   populateDependencies?(): Promise<void>;
-  startDevServer?(): Promise<() => Promise<void>>;
   clearCache?(): Promise<void>;
   begin?(suite: Suite): Promise<void>;
   end?(): Promise<void>;
@@ -31,7 +30,9 @@ export interface TestRunnerPlugin {
 export type TestRunnerPluginRegistration = {
   factory: TestRunnerPlugin | (() => TestRunnerPlugin | Promise<TestRunnerPlugin>);
   instance?: TestRunnerPlugin;
-  devServerCleanup?: any;
+  // When set, the plugin is only set up when the project (or their
+  // transitive closure of dependencies/teardowns) is selected to run.
+  projectId?: string;
 };
 
 export { webServer } from './webServerPlugin';

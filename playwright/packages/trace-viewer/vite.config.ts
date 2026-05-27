@@ -30,11 +30,12 @@ export default defineConfig({
   ],
   define: {
     'process.env': {},
+    '__APP_VERSION__': JSON.stringify(process.env.npm_package_version),
   },
   resolve: {
     alias: {
       '@injected': path.resolve(__dirname, '../injected/src'),
-      '@isomorphic': path.resolve(__dirname, '../playwright-core/src/utils/isomorphic'),
+      '@isomorphic': path.resolve(__dirname, '../isomorphic'),
       '@protocol': path.resolve(__dirname, '../protocol/src'),
       '@testIsomorphic': path.resolve(__dirname, '../playwright/src/isomorphic'),
       '@trace': path.resolve(__dirname, '../trace/src'),
@@ -43,7 +44,7 @@ export default defineConfig({
   },
   build: {
     outDir: path.resolve(__dirname, '../playwright-core/lib/vite/traceViewer'),
-    emptyOutDir: true,
+    emptyOutDir: false,
     rollupOptions: {
       input: {
         index: path.resolve(__dirname, 'index.html'),

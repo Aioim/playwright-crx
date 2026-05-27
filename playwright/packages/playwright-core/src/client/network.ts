@@ -14,31 +14,31 @@
  * limitations under the License.
  */
 
-import { ChannelOwner } from './channelOwner';
-import { isTargetClosedError } from './errors';
-import { Events } from './events';
-import { APIResponse } from './fetch';
-import { Frame } from './frame';
-import { Waiter } from './waiter';
+import { assert } from '@isomorphic/assert';
+import { headersObjectToArray } from '@isomorphic/headers';
+import { resolveGlobToRegexPattern, serializeURLMatch, urlMatches } from '@isomorphic/urlMatch';
+import { LongStandingScope, ManualPromise } from '@isomorphic/manualPromise';
+import { MultiMap } from '@isomorphic/multimap';
+import { isString } from '@isomorphic/rtti';
+import { rewriteErrorMessage } from '@isomorphic/stackTrace';
+import { getMimeTypeForPath } from '@isomorphic/mimeType';
 import { Worker } from './worker';
-import { assert } from '../utils/isomorphic/assert';
-import { headersObjectToArray } from '../utils/isomorphic/headers';
-import { urlMatches } from '../utils/isomorphic/urlMatch';
-import { LongStandingScope, ManualPromise } from '../utils/isomorphic/manualPromise';
-import { MultiMap } from '../utils/isomorphic/multimap';
-import { isRegExp, isString } from '../utils/isomorphic/rtti';
-import { rewriteErrorMessage } from '../utils/isomorphic/stackTrace';
-import { getMimeTypeForPath } from '../utils/isomorphic/mimeType';
+import { Waiter } from './waiter';
+import { Frame } from './frame';
+import { APIResponse } from './fetch';
+import { Events } from './events';
+import { isTargetClosedError } from './errors';
+import { ChannelOwner } from './channelOwner';
 
 import type { BrowserContext } from './browserContext';
 import type { Page } from './page';
 import type { Headers, RemoteAddr, SecurityDetails, WaitForEventOptions } from './types';
 import type { Serializable } from '../../types/structs';
 import type * as api from '../../types/types';
-import type { HeadersArray } from '../utils/isomorphic/types';
-import type { URLMatch } from '../utils/isomorphic/urlMatch';
+import type { HeadersArray } from '@isomorphic/types';
+import type { URLMatch } from '@isomorphic/urlMatch';
 import type * as channels from '@protocol/channels';
-import type { Platform, Zone } from './platform';
+import type { Platform, Zone } from '@isomorphic/platform';
 
 export type NetworkCookie = {
   name: string,
@@ -87,6 +87,7 @@ export class Request extends ChannelOwner<channels.RequestChannel> implements ap
   private _redirectedFrom: Request | null = null;
   private _redirectedTo: Request | null = null;
   _failureText: string | null = null;
+  _response: Response | null = null;
   private _provisionalHeaders: RawHeaders;
   private _actualHeadersPromise: Promise<RawHeaders> | undefined;
   _timing: ResourceTiming;
@@ -199,6 +200,10 @@ export class Request extends ChannelOwner<channels.RequestChannel> implements ap
 
   async _internalResponse(): Promise<Response | null> {
     return Response.fromNullable((await this._channel.response()).response);
+  }
+
+  existingResponse(): Response | null {
+    return this._response;
   }
 
   frame(): Frame {
@@ -480,6 +485,10 @@ export class WebSocketRoute extends ChannelOwner<channels.WebSocketRouteChannel>
         return this._initializer.url;
       },
 
+      protocols: () => {
+        return [...this._initializer.protocols];
+      },
+
       close: async (options: { code?: number, reason?: string } = {}) => {
         await this._channel.closeServer({ ...options, wasClean: true }).catch(() => {});
       },
@@ -529,6 +538,10 @@ export class WebSocketRoute extends ChannelOwner<channels.WebSocketRouteChannel>
     return this._initializer.url;
   }
 
+  protocols(): string[] {
+    return [...this._initializer.protocols];
+  }
+
   async close(options: { code?: number, reason?: string } = {}) {
     await this._channel.closePage({ ...options, wasClean: true }).catch(() => {});
   }
@@ -564,7 +577,8 @@ export class WebSocketRoute extends ChannelOwner<channels.WebSocketRouteChannel>
     if (this._connected)
       return;
     // Ensure that websocket is "open" and can send messages without an actual server connection.
-    await this._channel.ensureOpened();
+    // If this happens after the page has been closed, ignore the error.
+    await this._channel.ensureOpened().catch(() => {});
   }
 }
 
@@ -577,16 +591,19 @@ export class WebSocketRouteHandler {
     this._baseURL = baseURL;
     this.url = url;
     this.handler = handler;
+    // Eagerly validate string globs so that invalid patterns throw at the call site
+    // (e.g. page.routeWebSocket()) rather than silently failing later.
+    if (typeof url === 'string')
+      resolveGlobToRegexPattern(baseURL, url, true);
   }
 
   static prepareInterceptionPatterns(handlers: WebSocketRouteHandler[]) {
     const patterns: channels.BrowserContextSetWebSocketInterceptionPatternsParams['patterns'] = [];
     let all = false;
     for (const handler of handlers) {
-      if (isString(handler.url))
-        patterns.push({ glob: handler.url });
-      else if (isRegExp(handler.url))
-        patterns.push({ regexSource: handler.url.source, regexFlags: handler.url.flags });
+      const serialized = serializeURLMatch(handler.url);
+      if (serialized)
+        patterns.push(serialized);
       else
         all = true;
     }
@@ -646,6 +663,7 @@ export class Response extends ChannelOwner<channels.ResponseChannel> implements 
     super(parent, type, guid, initializer);
     this._provisionalHeaders = new RawHeaders(initializer.headers);
     this._request = Request.from(this._initializer.request);
+    this._request._response = this;
     Object.assign(this._request._timing, this._initializer.timing);
   }
 
@@ -735,6 +753,10 @@ export class Response extends ChannelOwner<channels.ResponseChannel> implements 
   async securityDetails(): Promise<SecurityDetails|null> {
     return (await this._channel.securityDetails()).value || null;
   }
+
+  async httpVersion(): Promise<string> {
+    return (await this._channel.httpVersion()).value;
+  }
 }
 
 export class WebSocket extends ChannelOwner<channels.WebSocketChannel> implements api.WebSocket {
@@ -818,16 +840,19 @@ export class RouteHandler {
     this.url = url;
     this.handler = handler;
     this._savedZone = platform.zones.current().pop();
+    // Eagerly validate string globs so that invalid patterns throw at the call site
+    // (e.g. page.route()) rather than silently aborting requests later.
+    if (typeof url === 'string')
+      resolveGlobToRegexPattern(baseURL, url);
   }
 
   static prepareInterceptionPatterns(handlers: RouteHandler[]) {
     const patterns: channels.BrowserContextSetNetworkInterceptionPatternsParams['patterns'] = [];
     let all = false;
     for (const handler of handlers) {
-      if (isString(handler.url))
-        patterns.push({ glob: handler.url });
-      else if (isRegExp(handler.url))
-        patterns.push({ regexSource: handler.url.source, regexFlags: handler.url.flags });
+      const serialized = serializeURLMatch(handler.url);
+      if (serialized)
+        patterns.push(serialized);
       else
         all = true;
     }

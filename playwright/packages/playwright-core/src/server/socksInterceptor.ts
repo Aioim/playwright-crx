@@ -1,7 +1,7 @@
 /**
  * Copyright (c) Microsoft Corporation.
  *
- * Licensed under the Apache License, Version 2.0 (the 'License");
+ * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
@@ -16,9 +16,9 @@
 
 import EventEmitter from 'events';
 
-import * as socks from './utils/socksProxy';
+import * as socks from '@utils/socksProxy';
+import { isUnderTest } from '@utils/debug';
 import { ValidationError, findValidator } from '../protocol/validator';
-import { isUnderTest } from './utils/debug';
 
 import type { WebSocketTransport } from './transport';
 import type { ValidatorContext } from '../protocol/validator';

@@ -19,10 +19,20 @@ import type { APIRequestContext, Browser, BrowserContext, BrowserContextOptions,
 export * from 'playwright-core';
 
 export type BlobReporterOptions = { outputDir?: string, fileName?: string };
-export type ListReporterOptions = { printSteps?: boolean };
-export type JUnitReporterOptions = { outputFile?: string, stripANSIControlSequences?: boolean, includeProjectInTestName?: boolean };
+export type ListReporterOptions = { printSteps?: boolean, printFailuresInline?: boolean };
+export type JUnitReporterOptions = { outputFile?: string, stripANSIControlSequences?: boolean, includeProjectInTestName?: boolean, includeRetries?: boolean };
 export type JsonReporterOptions = { outputFile?: string };
-export type HtmlReporterOptions = { outputFolder?: string, open?: 'always' | 'never' | 'on-failure', host?: string, port?: number, attachmentsBaseURL?: string, title?: string };
+export type HtmlReporterOptions = {
+  outputFolder?: string;
+  open?: 'always' | 'never' | 'on-failure';
+  host?: string;
+  port?: number;
+  attachmentsBaseURL?: string;
+  title?: string;
+  noSnippets?: boolean;
+  noCopyPrompt?: boolean;
+  doNotInlineAssets?: boolean;
+};
 
 export type ReporterDescription = Readonly<
   ['blob'] | ['blob', BlobReporterOptions] |
@@ -119,6 +129,54 @@ interface TestProject<TestArgs = {}, WorkerArgs = {}> {
    * all projects.
    */
   use?: UseOptions<TestArgs, WorkerArgs>;
+  /**
+   * Launch a development web server (or multiple) before running tests in this project. See
+   * [testConfig.webServer](https://playwright.dev/docs/api/class-testconfig#test-config-web-server) for the shape of
+   * each entry.
+   *
+   * A per-project `webServer` is only launched when the project is selected (either directly via `--project` or
+   * indirectly through dependencies). This is useful when only a subset of your projects need a local backend, while
+   * others run against a deployed environment.
+   *
+   * Per-project web servers are launched in addition to any top-level
+   * [testConfig.webServer](https://playwright.dev/docs/api/class-testconfig#test-config-web-server).
+   *
+   * **Usage**
+   *
+   * ```js
+   * // playwright.config.ts
+   * import { defineConfig } from '@playwright/test';
+   *
+   * export default defineConfig({
+   *   projects: [
+   *     {
+   *       name: 'functional',
+   *       grepInvert: /@smoke/,
+   *       use: { baseURL: 'http://localhost:3000' },
+   *       webServer: [
+   *         {
+   *           command: 'npm run start',
+   *           url: 'http://localhost:3000',
+   *           reuseExistingServer: !process.env.CI,
+   *         },
+   *         {
+   *           command: 'npm run mock-server',
+   *           port: 3001,
+   *           reuseExistingServer: !process.env.CI,
+   *         },
+   *       ],
+   *     },
+   *     {
+   *       name: 'smoke',
+   *       grep: /@smoke/,
+   *       use: { baseURL: 'https://production.app.com' },
+   *     },
+   *   ],
+   * });
+   * ```
+   *
+   */
+  webServer?: TestConfigWebServer | TestConfigWebServer[];
   /**
    * List of projects that need to run before any test in this project runs. Dependencies can be useful for configuring
    * the global setup actions in a way that every action is in a form of a test. Passing `--no-deps` argument ignores
@@ -227,6 +285,13 @@ interface TestProject<TestArgs = {}, WorkerArgs = {}> {
        * for details.
        */
       pathTemplate?: string;
+
+      /**
+       * Default timeout for
+       * [expect(page).toHaveScreenshot(name[, options])](https://playwright.dev/docs/api/class-pageassertions#page-assertions-to-have-screenshot-1)
+       * in milliseconds, defaults to the global expect timeout. Setting to `0` disables the timeout.
+       */
+      timeout?: number;
     };
 
     /**
@@ -241,6 +306,13 @@ interface TestProject<TestArgs = {}, WorkerArgs = {}> {
        * for details.
        */
       pathTemplate?: string;
+
+      /**
+       * Controls how children of the snapshot root are matched against the actual accessibility tree. This is equivalent to
+       * adding a `/children` property at the top of every aria snapshot template. Individual snapshots can override this by
+       * including an explicit `/children` property.
+       */
+      children?: "contain"|"equal"|"deep-equal";
     };
 
     /**
@@ -305,7 +377,7 @@ interface TestProject<TestArgs = {}, WorkerArgs = {}> {
   grep?: RegExp|Array<RegExp>;
 
   /**
-   * Filter to only run tests with a title **not** matching one of the patterns. This is the opposite of
+   * Filter to only run tests with a title **not** matching any of the patterns. This is the opposite of
    * [testProject.grep](https://playwright.dev/docs/api/class-testproject#test-project-grep). Also available globally
    * and in the [command line](https://playwright.dev/docs/test-cli) with the `--grep-invert` option.
    *
@@ -512,6 +584,8 @@ interface TestProject<TestArgs = {}, WorkerArgs = {}> {
    *     config)
    * - `{testFileDir}` - Directories in relative path from `testDir` to **test file**.
    *   - Value: `page`
+   * - `{testFileBaseName}` - Test file name without the last extension.
+   *   - Value: `page-click.spec`
    * - `{testFileName}` - Test file name with extension.
    *   - Value: `page-click.spec.ts`
    * - `{testFilePath}` - Relative path from `testDir` to **test file**.
@@ -756,6 +830,11 @@ export interface FullProject<TestArgs = {}, WorkerArgs = {}> {
   grepInvert: null|RegExp|Array<RegExp>;
 
   /**
+   * See [testProject.ignoreSnapshots](https://playwright.dev/docs/api/class-testproject#test-project-ignore-snapshots).
+   */
+  ignoreSnapshots: boolean;
+
+  /**
    * See [testProject.metadata](https://playwright.dev/docs/api/class-testproject#test-project-metadata).
    */
   metadata: Metadata;
@@ -864,7 +943,9 @@ interface TestConfig<TestArgs = {}, WorkerArgs = {}> {
    * - A module name like `'my-awesome-reporter'`.
    * - A relative path to the reporter like `'./reporters/my-awesome-reporter.js'`.
    *
-   * You can pass options to the reporter in a tuple like `['json', { outputFile: './report.json' }]`.
+   * You can pass options to the reporter in a tuple like `['json', { outputFile: './report.json' }]`. If the property
+   * is not specified, Playwright uses the `'dot'` reporter when the CI environment variable is set, and the `'list'`
+   * reporter otherwise.
    *
    * Learn more in the [reporters guide](https://playwright.dev/docs/test-reporters).
    *
@@ -978,6 +1059,31 @@ interface TestConfig<TestArgs = {}, WorkerArgs = {}> {
    *   use: {
    *     baseURL: 'http://localhost:3000',
    *   },
+   * });
+   * ```
+   *
+   * If your webserver runs on varying ports, use `wait` to capture the port:
+   *
+   * ```js
+   * import { defineConfig } from '@playwright/test';
+   *
+   * export default defineConfig({
+   *   webServer: {
+   *     command: 'npm run start',
+   *     wait: {
+   *       stdout: /Listening on port (?<my_server_port>\d+)/
+   *     },
+   *   },
+   * });
+   * ```
+   *
+   * ```js
+   * import { test, expect } from '@playwright/test';
+   *
+   * test.use({ baseUrl: `http://localhost:${process.env.MY_SERVER_PORT ?? 3000}` });
+   *
+   * test('homepage', async ({ page }) => {
+   *   await page.goto('/');
    * });
    * ```
    *
@@ -1140,6 +1246,13 @@ interface TestConfig<TestArgs = {}, WorkerArgs = {}> {
        * for details.
        */
       pathTemplate?: string;
+
+      /**
+       * Controls how children of the snapshot root are matched against the actual accessibility tree. This is equivalent to
+       * adding a `/children` property at the top of every aria snapshot template. Individual snapshots can override this by
+       * including an explicit `/children` property.
+       */
+      children?: "contain"|"equal"|"deep-equal";
     };
 
     /**
@@ -1388,8 +1501,8 @@ interface TestConfig<TestArgs = {}, WorkerArgs = {}> {
   maxFailures?: number;
 
   /**
-   * Metadata contains key-value pairs to be included in the report. For example, HTML report will display it as
-   * key-value pairs, and JSON report will include metadata serialized as json.
+   * Metadata contains key-value pairs to be included in the report. For example, the JSON report will include metadata
+   * serialized as JSON.
    *
    * **Usage**
    *
@@ -1714,6 +1827,8 @@ interface TestConfig<TestArgs = {}, WorkerArgs = {}> {
    *     config)
    * - `{testFileDir}` - Directories in relative path from `testDir` to **test file**.
    *   - Value: `page`
+   * - `{testFileBaseName}` - Test file name without the last extension.
+   *   - Value: `page-click.spec`
    * - `{testFileName}` - Test file name with extension.
    *   - Value: `page-click.spec.ts`
    * - `{testFilePath}` - Relative path from `testDir` to **test file**.
@@ -1748,6 +1863,26 @@ interface TestConfig<TestArgs = {}, WorkerArgs = {}> {
    * 1. Forward slashes `"/"` can be used as path separators on any platform.
    */
   snapshotPathTemplate?: string;
+
+  /**
+   * Tag or tags prepended to each test in the report. Useful for tagging your test run to differentiate between
+   * [CI environments](https://playwright.dev/docs/test-sharding#merging-reports-from-multiple-environments).
+   *
+   * Note that each tag must start with `@` symbol. Learn more about [tagging](https://playwright.dev/docs/test-annotations#tag-tests).
+   *
+   * **Usage**
+   *
+   * ```js
+   * // playwright.config.ts
+   * import { defineConfig } from '@playwright/test';
+   *
+   * export default defineConfig({
+   *   tag: process.env.CI_ENVIRONMENT_NAME,  // for example "@APIv2"
+   * });
+   * ```
+   *
+   */
+  tag?: string|Array<string>;
 
   /**
    * Directory that will be recursively scanned for test files. Defaults to the directory of the configuration file.
@@ -1852,7 +1987,7 @@ interface TestConfig<TestArgs = {}, WorkerArgs = {}> {
    * Whether to update expected snapshots with the actual results produced by the test run. Defaults to `'missing'`.
    * - `'all'` - All tests that are executed will update snapshots.
    * - `'changed'` - All tests that are executed will update snapshots that did not match. Matching snapshots will not
-   *   be updated.
+   *   be updated. Also creates missing snapshots.
    * - `'missing'` - Missing snapshots are created, for example when authoring a new test and running it for the first
    *   time. This is the default.
    * - `'none'` - No snapshots are updated.
@@ -1932,9 +2067,23 @@ export interface FullConfig<TestArgs = {}, WorkerArgs = {}> {
    */
   webServer: TestConfigWebServer | null;
   /**
+   * Snapshot of [`process.argv`](https://nodejs.org/api/process.html#processargv) captured in the runner process.
+   * Useful for reading custom command-line arguments — for example, args supplied after the `--` separator (`npx
+   * playwright test -- --build-path=./out`). Playwright does not parse these; consumers are responsible for slicing and
+   * interpreting them with any argument-parsing library.
+   */
+  argv: Array<string>;
+
+  /**
    * Path to the configuration file used to run the tests. The value is an empty string if no config file was used.
    */
   configFile?: string;
+
+  /**
+   * See
+   * [testConfig.failOnFlakyTests](https://playwright.dev/docs/api/class-testconfig#test-config-fail-on-flaky-tests).
+   */
+  failOnFlakyTests: boolean;
 
   /**
    * See [testConfig.forbidOnly](https://playwright.dev/docs/api/class-testconfig#test-config-forbid-only).
@@ -2025,6 +2174,11 @@ export interface FullConfig<TestArgs = {}, WorkerArgs = {}> {
      */
     current: number;
   };
+
+  /**
+   * Resolved global tags. See [testConfig.tag](https://playwright.dev/docs/api/class-testconfig#test-config-tag).
+   */
+  tags: Array<string>;
 
   /**
    * See [testConfig.updateSnapshots](https://playwright.dev/docs/api/class-testconfig#test-config-update-snapshots).
@@ -2325,6 +2479,11 @@ export interface TestInfo {
      * Optional description.
      */
     description?: string;
+
+    /**
+     * Optional location in the source where the annotation is added.
+     */
+    location?: Location;
   }>;
 
   /**
@@ -2575,14 +2734,16 @@ export type TestDetailsAnnotation = {
   description?: string;
 };
 
-export type TestAnnotation = TestDetailsAnnotation;
+export type TestAnnotation = TestDetailsAnnotation & {
+  location?: Location;
+};
 
 export type TestDetails = {
   tag?: string | string[];
   annotation?: TestDetailsAnnotation | TestDetailsAnnotation[];
 }
 
-type TestBody<TestArgs> = (args: TestArgs, testInfo: TestInfo) => Promise<void> | void;
+type TestBody<TestArgs> = (args: TestArgs, testInfo: TestInfo) => Promise<unknown> | unknown;
 type ConditionBody<TestArgs> = (args: TestArgs) => boolean;
 
 /**
@@ -4124,7 +4285,7 @@ export interface TestType<TestArgs extends {}, WorkerArgs extends {}> {
   /**
    * Skip a test. Playwright will not run the test past the `test.skip()` call.
    *
-   * Skipped tests are not supposed to be ever run. If you intent to fix the test, use
+   * Skipped tests are not supposed to be ever run. If you intend to fix the test, use
    * [test.fixme([title, details, body, condition, callback, description])](https://playwright.dev/docs/api/class-test#test-fixme)
    * instead.
    *
@@ -4179,7 +4340,7 @@ export interface TestType<TestArgs extends {}, WorkerArgs extends {}> {
    * });
    * ```
    *
-   * You can also call `test.skip()` without arguments inside the test body to always mark the test as failed. We
+   * You can also call `test.skip()` without arguments inside the test body to always skip the test. However, we
    * recommend using `test.skip(title, body)` instead.
    *
    * ```js
@@ -4196,16 +4357,16 @@ export interface TestType<TestArgs extends {}, WorkerArgs extends {}> {
    * description.
    * @param body Test body that takes one or two arguments: an object with fixtures and optional
    * [TestInfo](https://playwright.dev/docs/api/class-testinfo).
-   * @param condition Test is marked as "should fail" when the condition is `true`.
-   * @param callback A function that returns whether to mark as "should fail", based on test fixtures. Test or tests are marked as
-   * "should fail" when the return value is `true`.
+   * @param condition Test is marked as "skipped" when the condition is `true`.
+   * @param callback A function that returns whether to mark as "skipped", based on test fixtures. Test or tests are marked as "skipped"
+   * when the return value is `true`.
    * @param description Optional description that will be reflected in a test report.
    */
   skip(title: string, body: TestBody<TestArgs & WorkerArgs>): void;
   /**
    * Skip a test. Playwright will not run the test past the `test.skip()` call.
    *
-   * Skipped tests are not supposed to be ever run. If you intent to fix the test, use
+   * Skipped tests are not supposed to be ever run. If you intend to fix the test, use
    * [test.fixme([title, details, body, condition, callback, description])](https://playwright.dev/docs/api/class-test#test-fixme)
    * instead.
    *
@@ -4260,7 +4421,7 @@ export interface TestType<TestArgs extends {}, WorkerArgs extends {}> {
    * });
    * ```
    *
-   * You can also call `test.skip()` without arguments inside the test body to always mark the test as failed. We
+   * You can also call `test.skip()` without arguments inside the test body to always skip the test. However, we
    * recommend using `test.skip(title, body)` instead.
    *
    * ```js
@@ -4277,16 +4438,16 @@ export interface TestType<TestArgs extends {}, WorkerArgs extends {}> {
    * description.
    * @param body Test body that takes one or two arguments: an object with fixtures and optional
    * [TestInfo](https://playwright.dev/docs/api/class-testinfo).
-   * @param condition Test is marked as "should fail" when the condition is `true`.
-   * @param callback A function that returns whether to mark as "should fail", based on test fixtures. Test or tests are marked as
-   * "should fail" when the return value is `true`.
+   * @param condition Test is marked as "skipped" when the condition is `true`.
+   * @param callback A function that returns whether to mark as "skipped", based on test fixtures. Test or tests are marked as "skipped"
+   * when the return value is `true`.
    * @param description Optional description that will be reflected in a test report.
    */
   skip(title: string, details: TestDetails, body: TestBody<TestArgs & WorkerArgs>): void;
   /**
    * Skip a test. Playwright will not run the test past the `test.skip()` call.
    *
-   * Skipped tests are not supposed to be ever run. If you intent to fix the test, use
+   * Skipped tests are not supposed to be ever run. If you intend to fix the test, use
    * [test.fixme([title, details, body, condition, callback, description])](https://playwright.dev/docs/api/class-test#test-fixme)
    * instead.
    *
@@ -4341,7 +4502,7 @@ export interface TestType<TestArgs extends {}, WorkerArgs extends {}> {
    * });
    * ```
    *
-   * You can also call `test.skip()` without arguments inside the test body to always mark the test as failed. We
+   * You can also call `test.skip()` without arguments inside the test body to always skip the test. However, we
    * recommend using `test.skip(title, body)` instead.
    *
    * ```js
@@ -4358,16 +4519,16 @@ export interface TestType<TestArgs extends {}, WorkerArgs extends {}> {
    * description.
    * @param body Test body that takes one or two arguments: an object with fixtures and optional
    * [TestInfo](https://playwright.dev/docs/api/class-testinfo).
-   * @param condition Test is marked as "should fail" when the condition is `true`.
-   * @param callback A function that returns whether to mark as "should fail", based on test fixtures. Test or tests are marked as
-   * "should fail" when the return value is `true`.
+   * @param condition Test is marked as "skipped" when the condition is `true`.
+   * @param callback A function that returns whether to mark as "skipped", based on test fixtures. Test or tests are marked as "skipped"
+   * when the return value is `true`.
    * @param description Optional description that will be reflected in a test report.
    */
   skip(): void;
   /**
    * Skip a test. Playwright will not run the test past the `test.skip()` call.
    *
-   * Skipped tests are not supposed to be ever run. If you intent to fix the test, use
+   * Skipped tests are not supposed to be ever run. If you intend to fix the test, use
    * [test.fixme([title, details, body, condition, callback, description])](https://playwright.dev/docs/api/class-test#test-fixme)
    * instead.
    *
@@ -4422,7 +4583,7 @@ export interface TestType<TestArgs extends {}, WorkerArgs extends {}> {
    * });
    * ```
    *
-   * You can also call `test.skip()` without arguments inside the test body to always mark the test as failed. We
+   * You can also call `test.skip()` without arguments inside the test body to always skip the test. However, we
    * recommend using `test.skip(title, body)` instead.
    *
    * ```js
@@ -4439,16 +4600,16 @@ export interface TestType<TestArgs extends {}, WorkerArgs extends {}> {
    * description.
    * @param body Test body that takes one or two arguments: an object with fixtures and optional
    * [TestInfo](https://playwright.dev/docs/api/class-testinfo).
-   * @param condition Test is marked as "should fail" when the condition is `true`.
-   * @param callback A function that returns whether to mark as "should fail", based on test fixtures. Test or tests are marked as
-   * "should fail" when the return value is `true`.
+   * @param condition Test is marked as "skipped" when the condition is `true`.
+   * @param callback A function that returns whether to mark as "skipped", based on test fixtures. Test or tests are marked as "skipped"
+   * when the return value is `true`.
    * @param description Optional description that will be reflected in a test report.
    */
   skip(condition: boolean, description?: string): void;
   /**
    * Skip a test. Playwright will not run the test past the `test.skip()` call.
    *
-   * Skipped tests are not supposed to be ever run. If you intent to fix the test, use
+   * Skipped tests are not supposed to be ever run. If you intend to fix the test, use
    * [test.fixme([title, details, body, condition, callback, description])](https://playwright.dev/docs/api/class-test#test-fixme)
    * instead.
    *
@@ -4503,7 +4664,7 @@ export interface TestType<TestArgs extends {}, WorkerArgs extends {}> {
    * });
    * ```
    *
-   * You can also call `test.skip()` without arguments inside the test body to always mark the test as failed. We
+   * You can also call `test.skip()` without arguments inside the test body to always skip the test. However, we
    * recommend using `test.skip(title, body)` instead.
    *
    * ```js
@@ -4520,9 +4681,9 @@ export interface TestType<TestArgs extends {}, WorkerArgs extends {}> {
    * description.
    * @param body Test body that takes one or two arguments: an object with fixtures and optional
    * [TestInfo](https://playwright.dev/docs/api/class-testinfo).
-   * @param condition Test is marked as "should fail" when the condition is `true`.
-   * @param callback A function that returns whether to mark as "should fail", based on test fixtures. Test or tests are marked as
-   * "should fail" when the return value is `true`.
+   * @param condition Test is marked as "skipped" when the condition is `true`.
+   * @param callback A function that returns whether to mark as "skipped", based on test fixtures. Test or tests are marked as "skipped"
+   * when the return value is `true`.
    * @param description Optional description that will be reflected in a test report.
    */
   skip(callback: ConditionBody<TestArgs & WorkerArgs>, description?: string): void;
@@ -4599,9 +4760,9 @@ export interface TestType<TestArgs extends {}, WorkerArgs extends {}> {
    * description.
    * @param body Test body that takes one or two arguments: an object with fixtures and optional
    * [TestInfo](https://playwright.dev/docs/api/class-testinfo).
-   * @param condition Test is marked as "should fail" when the condition is `true`.
-   * @param callback A function that returns whether to mark as "should fail", based on test fixtures. Test or tests are marked as
-   * "should fail" when the return value is `true`.
+   * @param condition Test is marked as "fixme" when the condition is `true`.
+   * @param callback A function that returns whether to mark as "fixme", based on test fixtures. Test or tests are marked as "fixme"
+   * when the return value is `true`.
    * @param description Optional description that will be reflected in a test report.
    */
   fixme(title: string, body: TestBody<TestArgs & WorkerArgs>): void;
@@ -4677,9 +4838,9 @@ export interface TestType<TestArgs extends {}, WorkerArgs extends {}> {
    * description.
    * @param body Test body that takes one or two arguments: an object with fixtures and optional
    * [TestInfo](https://playwright.dev/docs/api/class-testinfo).
-   * @param condition Test is marked as "should fail" when the condition is `true`.
-   * @param callback A function that returns whether to mark as "should fail", based on test fixtures. Test or tests are marked as
-   * "should fail" when the return value is `true`.
+   * @param condition Test is marked as "fixme" when the condition is `true`.
+   * @param callback A function that returns whether to mark as "fixme", based on test fixtures. Test or tests are marked as "fixme"
+   * when the return value is `true`.
    * @param description Optional description that will be reflected in a test report.
    */
   fixme(title: string, details: TestDetails, body: TestBody<TestArgs & WorkerArgs>): void;
@@ -4755,9 +4916,9 @@ export interface TestType<TestArgs extends {}, WorkerArgs extends {}> {
    * description.
    * @param body Test body that takes one or two arguments: an object with fixtures and optional
    * [TestInfo](https://playwright.dev/docs/api/class-testinfo).
-   * @param condition Test is marked as "should fail" when the condition is `true`.
-   * @param callback A function that returns whether to mark as "should fail", based on test fixtures. Test or tests are marked as
-   * "should fail" when the return value is `true`.
+   * @param condition Test is marked as "fixme" when the condition is `true`.
+   * @param callback A function that returns whether to mark as "fixme", based on test fixtures. Test or tests are marked as "fixme"
+   * when the return value is `true`.
    * @param description Optional description that will be reflected in a test report.
    */
   fixme(): void;
@@ -4833,9 +4994,9 @@ export interface TestType<TestArgs extends {}, WorkerArgs extends {}> {
    * description.
    * @param body Test body that takes one or two arguments: an object with fixtures and optional
    * [TestInfo](https://playwright.dev/docs/api/class-testinfo).
-   * @param condition Test is marked as "should fail" when the condition is `true`.
-   * @param callback A function that returns whether to mark as "should fail", based on test fixtures. Test or tests are marked as
-   * "should fail" when the return value is `true`.
+   * @param condition Test is marked as "fixme" when the condition is `true`.
+   * @param callback A function that returns whether to mark as "fixme", based on test fixtures. Test or tests are marked as "fixme"
+   * when the return value is `true`.
    * @param description Optional description that will be reflected in a test report.
    */
   fixme(condition: boolean, description?: string): void;
@@ -4911,9 +5072,9 @@ export interface TestType<TestArgs extends {}, WorkerArgs extends {}> {
    * description.
    * @param body Test body that takes one or two arguments: an object with fixtures and optional
    * [TestInfo](https://playwright.dev/docs/api/class-testinfo).
-   * @param condition Test is marked as "should fail" when the condition is `true`.
-   * @param callback A function that returns whether to mark as "should fail", based on test fixtures. Test or tests are marked as
-   * "should fail" when the return value is `true`.
+   * @param condition Test is marked as "fixme" when the condition is `true`.
+   * @param callback A function that returns whether to mark as "fixme", based on test fixtures. Test or tests are marked as "fixme"
+   * when the return value is `true`.
    * @param description Optional description that will be reflected in a test report.
    */
   fixme(callback: ConditionBody<TestArgs & WorkerArgs>, description?: string): void;
@@ -5442,6 +5603,29 @@ export interface TestType<TestArgs extends {}, WorkerArgs extends {}> {
      */
     only(title: string, details: TestDetails, body: TestBody<TestArgs & WorkerArgs>): void;
   }
+
+  /**
+   * Aborts the currently running test by throwing an error. The test is immediately marked as failed and execution
+   * stops. This is useful from inside a fixture or a route handler when you have detected an unrecoverable misuse and
+   * want to fail the test right away.
+   *
+   * **Usage**
+   *
+   * ```js
+   * import { test, expect } from '@playwright/test';
+   *
+   * test('does not publish to shared page', async ({ page }) => {
+   *   await page.route('**\/publish', route => {
+   *     test.abort('Tests must not publish to the shared page. Use the `clone` option.');
+   *     return route.abort();
+   *   });
+   *   // ...
+   * });
+   * ```
+   *
+   * @param message Optional message describing the reason for the abort. It will be included in the failure error.
+   */
+  abort(message?: string): never;
 
   /**
    * Marks a test as "slow". Slow test will be given triple the default timeout.
@@ -6164,7 +6348,7 @@ export interface TestType<TestArgs extends {}, WorkerArgs extends {}> {
    *     const name = this.constructor.name + '.' + (context.name as string);
    *     return test.step(name, async () => {
    *       return await target.call(this, ...args);
-   *     });
+   *     }, { box: true });
    *   };
    * }
    *
@@ -6323,7 +6507,7 @@ export interface TestType<TestArgs extends {}, WorkerArgs extends {}> {
      *     const name = this.constructor.name + '.' + (context.name as string);
      *     return test.step(name, async () => {
      *       return await target.call(this, ...args);
-     *     });
+     *     }, { box: true });
      *   };
      * }
      *
@@ -6567,13 +6751,13 @@ export type WorkerFixture<R, Args extends {}> = (args: Args, use: (r: R) => Prom
 type TestFixtureValue<R, Args extends {}> = Exclude<R, Function> | TestFixture<R, Args>;
 type WorkerFixtureValue<R, Args extends {}> = Exclude<R, Function> | WorkerFixture<R, Args>;
 export type Fixtures<T extends {} = {}, W extends {} = {}, PT extends {} = {}, PW extends {} = {}> = {
-  [K in keyof PW]?: WorkerFixtureValue<PW[K], W & PW> | [WorkerFixtureValue<PW[K], W & PW>, { scope: 'worker', timeout?: number | undefined, title?: string, box?: boolean }];
+  [K in keyof PW]?: WorkerFixtureValue<PW[K], W & PW> | [WorkerFixtureValue<PW[K], W & PW>, { scope: 'worker', timeout?: number | undefined, title?: string, box?: boolean | 'self' }];
 } & {
-  [K in keyof PT]?: TestFixtureValue<PT[K], T & W & PT & PW> | [TestFixtureValue<PT[K], T & W & PT & PW>, { scope: 'test', timeout?: number | undefined, title?: string, box?: boolean }];
+  [K in keyof PT]?: TestFixtureValue<PT[K], T & W & PT & PW> | [TestFixtureValue<PT[K], T & W & PT & PW>, { scope: 'test', timeout?: number | undefined, title?: string, box?: boolean | 'self' }];
 } & {
-  [K in Exclude<keyof W, keyof PW | keyof PT>]?: [WorkerFixtureValue<W[K], W & PW>, { scope: 'worker', auto?: boolean, option?: boolean, timeout?: number | undefined, title?: string, box?: boolean }];
+  [K in Exclude<keyof W, keyof PW | keyof PT>]?: [WorkerFixtureValue<W[K], W & PW>, { scope: 'worker', auto?: boolean, option?: boolean, timeout?: number | undefined, title?: string, box?: boolean | 'self' }];
 } & {
-  [K in Exclude<keyof T, keyof PW | keyof PT>]?: TestFixtureValue<T[K], T & W & PT & PW> | [TestFixtureValue<T[K], T & W & PT & PW>, { scope?: 'test', auto?: boolean, option?: boolean, timeout?: number | undefined, title?: string, box?: boolean }];
+  [K in Exclude<keyof T, keyof PW | keyof PT>]?: TestFixtureValue<T[K], T & W & PT & PW> | [TestFixtureValue<T[K], T & W & PT & PW>, { scope?: 'test', auto?: boolean, option?: boolean, timeout?: number | undefined, title?: string, box?: boolean | 'self' }];
 };
 
 type BrowserName = 'chromium' | 'firefox' | 'webkit';
@@ -6679,9 +6863,7 @@ export interface PlaywrightWorkerOptions {
   /**
    * Whether to run browser in headless mode. More details for
    * [Chromium](https://developers.google.com/web/updates/2017/04/headless-chrome) and
-   * [Firefox](https://hacks.mozilla.org/2017/12/using-headless-mode-in-firefox/). Defaults to `true` unless the
-   * [`devtools`](https://playwright.dev/docs/api/class-browsertype#browser-type-launch-option-devtools) option is
-   * `true`.
+   * [Firefox](https://hacks.mozilla.org/2017/12/using-headless-mode-in-firefox/). Defaults to `true`.
    *
    * **Usage**
    *
@@ -6816,6 +6998,9 @@ export interface PlaywrightWorkerOptions {
    * - `'retain-on-failure'`: Record trace for each test. When test run passes, remove the recorded trace.
    * - `'retain-on-first-failure'`: Record trace for the first run of each test, but not for retries. When test run
    *   passes, remove the recorded trace.
+   * - `'retain-on-failure-and-retries'`: Record trace for each test run. Retains all traces when an attempt fails.
+   * - `'retain-all-failures'`: Record trace for each test run. Retains the trace only for attempts that failed,
+   *   regardless of the final test outcome.
    *
    * For more control, pass an object that specifies `mode` and trace features to enable.
    *
@@ -6847,6 +7032,10 @@ export interface PlaywrightWorkerOptions {
    * down to fit into 800x800. If `viewport` is not configured explicitly the video size defaults to 800x450. Actual
    * picture of each page will be scaled down if necessary to fit the specified size.
    *
+   * To annotate actions in the video, pass `show` with `action` and/or `test` sub-options. The `action` option controls
+   * visual highlights on interacted elements with an optional `delay` in milliseconds (defaults to `500`). The `test`
+   * option controls which test information is displayed as a status overlay.
+   *
    * **Usage**
    *
    * ```js
@@ -6862,13 +7051,12 @@ export interface PlaywrightWorkerOptions {
    *
    * Learn more about [recording video](https://playwright.dev/docs/test-use-options#recording-options).
    */
-  video: VideoMode | /** deprecated */ 'retry-with-video' | { mode: VideoMode, size?: ViewportSize };
+  video: VideoMode | /** deprecated */ 'retry-with-video' | { mode: VideoMode, size?: ViewportSize, show?: { actions?: { duration?: number, position?: 'top-left' | 'top' | 'top-right' | 'bottom-left' | 'bottom' | 'bottom-right', fontSize?: number }, test?: { level?: 'file' | 'title' | 'step', position?: 'top-left' | 'top' | 'top-right' | 'bottom-left' | 'bottom' | 'bottom-right', fontSize?: number } } };
 }
 
 export type ScreenshotMode = 'off' | 'on' | 'only-on-failure' | 'on-first-failure';
-export type TraceMode = 'off' | 'on' | 'retain-on-failure' | 'on-first-retry' | 'on-all-retries' | 'retain-on-first-failure';
+export type TraceMode = 'off' | 'on' | 'retain-on-failure' | 'on-first-retry' | 'on-all-retries' | 'retain-on-first-failure' | 'retain-on-failure-and-retries' | 'retain-all-failures';
 export type VideoMode = 'off' | 'on' | 'retain-on-failure' | 'on-first-retry';
-
 /**
  * Playwright Test provides many options to configure test environment,
  * [Browser](https://playwright.dev/docs/api/class-browser),
@@ -6974,6 +7162,10 @@ export interface PlaywrightTestOptions {
    * a single `pfxPath`, or their corresponding direct value equivalents (`cert` and `key`, or `pfx`). Optionally,
    * `passphrase` property should be provided if the certificate is encrypted. The `origin` property should be provided
    * with an exact match to the request origin that the certificate is valid for.
+   *
+   * Client certificate authentication is only active when at least one client certificate is provided. If you want to
+   * reject all client certificates sent by the server, you need to provide a client certificate with an `origin` that
+   * does not match any of the domains you plan to visit.
    *
    * **NOTE** When using WebKit on macOS, accessing `localhost` will not pick up client certificates. You can make it
    * work by replacing `localhost` with `local.playwright`.
@@ -7453,7 +7645,7 @@ export interface PlaywrightTestOptions {
   /**
    * Custom attribute to be used in
    * [page.getByTestId(testId)](https://playwright.dev/docs/api/class-page#page-get-by-test-id). `data-testid` is used
-   * by default.
+   * by default. To match elements with any of several attributes, pass them as a comma-separated list.
    *
    * **Usage**
    *
@@ -7464,6 +7656,19 @@ export interface PlaywrightTestOptions {
    * export default defineConfig({
    *   use: {
    *     testIdAttribute: 'pw-test-id',
+   *   },
+   * });
+   * ```
+   *
+   * Multiple attributes:
+   *
+   * ```js
+   * // playwright.config.ts
+   * import { defineConfig } from '@playwright/test';
+   *
+   * export default defineConfig({
+   *   use: {
+   *     testIdAttribute: 'data-pw,data-ti',
    *   },
    * });
    * ```
@@ -7623,6 +7828,9 @@ type CustomProperties<T> = ExcludeProps<T, PlaywrightTestOptions & PlaywrightWor
 export type PlaywrightTestProject<TestArgs = {}, WorkerArgs = {}> = Project<PlaywrightTestOptions & CustomProperties<TestArgs>, PlaywrightWorkerOptions & CustomProperties<WorkerArgs>>;
 export type PlaywrightTestConfig<TestArgs = {}, WorkerArgs = {}> = Config<PlaywrightTestOptions & CustomProperties<TestArgs>, PlaywrightWorkerOptions & CustomProperties<WorkerArgs>>;
 
+// Use the global URLPattern type if available (Node.js 22+, modern browsers),
+// otherwise fall back to `never` so it disappears from union types.
+type URLPattern = typeof globalThis extends { URLPattern: new (...args: any) => infer T } ? T : never;
 type AsymmetricMatcher = Record<string, any>;
 
 interface AsymmetricMatchers {
@@ -7683,6 +7891,27 @@ interface AsymmetricMatchers {
    * @param expected Expected array that is a subset of the received value.
    */
   arrayContaining(sample: Array<unknown>): AsymmetricMatcher;
+  /**
+   * `expect.arrayOf()` matches array of objects created from the
+   * [`constructor`](https://playwright.dev/docs/api/class-genericassertions#generic-assertions-array-of-option-constructor)
+   * or a corresponding primitive type. Use it inside
+   * [expect(value).toEqual(expected)](https://playwright.dev/docs/api/class-genericassertions#generic-assertions-to-equal)
+   * to perform pattern matching.
+   *
+   * **Usage**
+   *
+   * ```js
+   * // Match instance of a class.
+   * class Example {}
+   * expect([new Example(), new Example()]).toEqual(expect.arrayOf(Example));
+   *
+   * // Match any string.
+   * expect(['a', 'b', 'c']).toEqual(expect.arrayOf(String));
+   * ```
+   *
+   * @param constructor Constructor of the expected object like `ExampleClass`, or a primitive boxed type like `Number`.
+   */
+  arrayOf(sample: unknown): AsymmetricMatcher;
   /**
    * Compares floating point numbers for approximate equality. Use this method inside
    * [expect(value).toEqual(expected)](https://playwright.dev/docs/api/class-genericassertions#generic-assertions-to-equal)
@@ -7789,7 +8018,11 @@ interface AsymmetricMatchers {
  */
 interface GenericAssertions<R> {
   /**
-   * Makes the assertion check for the opposite condition. For example, the following code passes:
+   * Makes the assertion check for the opposite condition.
+   *
+   * **Usage**
+   *
+   * For example, the following code passes:
    *
    * ```js
    * const value = 1;
@@ -7798,6 +8031,34 @@ interface GenericAssertions<R> {
    *
    */
   not: GenericAssertions<R>;
+  /**
+   * Use `resolves` to unwrap the value of a fulfilled promise so any other matcher can be chained. If the promise is
+   * rejected the assertion fails.
+   *
+   * For example, this code tests that the promise resolves and that the resulting value is `'lemon'`:
+   *
+   * ```js
+   * test('resolves to lemon', async () => {
+   *   await expect(Promise.resolve('lemon')).resolves.toBe('lemon');
+   * });
+   * ```
+   *
+   */
+  resolves: GenericAssertions<R>;
+  /**
+   * Use `.rejects` to unwrap the reason of a rejected promise so any other matcher can be chained. If the promise is
+   * fulfilled the assertion fails.
+   *
+   * For example, this code tests that the promise rejects with reason `'octopus'`:
+   *
+   * ```js
+   * test('rejects to octopus', async () => {
+   *   await expect(Promise.reject(new Error('octopus'))).rejects.toThrow('octopus');
+   * });
+   * ```
+   *
+   */
+  rejects: GenericAssertions<R>;
   /**
    * Compares value with
    * [`expected`](https://playwright.dev/docs/api/class-genericassertions#generic-assertions-to-be-option-expected) by
@@ -8066,6 +8327,7 @@ interface GenericAssertions<R> {
    * - [expect(value).any(constructor)](https://playwright.dev/docs/api/class-genericassertions#generic-assertions-any)
    * - [expect(value).anything()](https://playwright.dev/docs/api/class-genericassertions#generic-assertions-anything)
    * - [expect(value).arrayContaining(expected)](https://playwright.dev/docs/api/class-genericassertions#generic-assertions-array-containing)
+   * - [expect(value).arrayOf(constructor)](https://playwright.dev/docs/api/class-genericassertions#generic-assertions-array-of)
    * - [expect(value).closeTo(expected[, numDigits])](https://playwright.dev/docs/api/class-genericassertions#generic-assertions-close-to)
    * - [expect(value).objectContaining(expected)](https://playwright.dev/docs/api/class-genericassertions#generic-assertions-object-containing)
    * - [expect(value).stringContaining(expected)](https://playwright.dev/docs/api/class-genericassertions#generic-assertions-string-containing)
@@ -8357,7 +8619,7 @@ type PollMatchers<R, T, ExtendedMatchers> = {
 
 export type Expect<ExtendedMatchers = {}> = {
   <T = unknown>(actual: T, messageOrOptions?: string | { message?: string }): MakeMatchers<void, T, ExtendedMatchers>;
-  soft: <T = unknown>(actual: T, messageOrOptions?: string | { message?: string }) => MakeMatchers<void, T, ExtendedMatchers>;
+  soft: Expect<ExtendedMatchers>;
   poll: <T = unknown>(actual: () => T | Promise<T>, messageOrOptions?: string | { message?: string, timeout?: number, intervals?: number[] }) => PollMatchers<Promise<void>, T, ExtendedMatchers>;
   extend<MoreMatchers extends Record<string, (this: ExpectMatcherState, receiver: any, ...args: any[]) => MatcherReturnType | Promise<MatcherReturnType>>>(matchers: MoreMatchers): Expect<ExtendedMatchers & MoreMatchers>;
   configure: (configuration: {
@@ -8450,8 +8712,11 @@ interface APIResponseAssertions {
   toBeOK(): Promise<void>;
 
   /**
-   * Makes the assertion check for the opposite condition. For example, this code tests that the response status is not
-   * successful:
+   * Makes the assertion check for the opposite condition.
+   *
+   * **Usage**
+   *
+   * For example, this code tests that the response status is not successful:
    *
    * ```js
    * await expect(response).not.toBeOK();
@@ -9047,6 +9312,11 @@ interface LocatorAssertions {
    */
   toHaveCSS(name: string, value: string|RegExp, options?: {
     /**
+     * Pseudo-element to read computed styles from.
+     */
+    pseudo?: "before"|"after";
+
+    /**
      * Time to retry the assertion for in milliseconds. Defaults to `timeout` in `TestConfig.expect`.
      */
     timeout?: number;
@@ -9482,8 +9752,11 @@ interface LocatorAssertions {
   }): Promise<void>;
 
   /**
-   * Makes the assertion check for the opposite condition. For example, this code tests that the Locator doesn't contain
-   * text `"error"`:
+   * Makes the assertion check for the opposite condition.
+   *
+   * **Usage**
+   *
+   * For example, this code tests that the Locator doesn't contain text `"error"`:
    *
    * ```js
    * await expect(locator).not.toContainText('error');
@@ -9571,6 +9844,9 @@ interface PageAssertions {
    * // Check for the page URL to contain 'doc', followed by an optional 's', followed by '/'
    * await expect(page).toHaveURL(/docs?\//);
    *
+   * // Check for the page URL to match the URL pattern
+   * await expect(page).toHaveURL(new URLPattern({ pathname: '/docs/*' }));
+   *
    * // Check for the predicate to be satisfied
    * // For example: verify query strings
    * await expect(page).toHaveURL(url => {
@@ -9586,7 +9862,7 @@ interface PageAssertions {
    * against the current browser URL.
    * @param options
    */
-  toHaveURL(url: string|RegExp|((url: URL) => boolean), options?: {
+  toHaveURL(url: string|RegExp|URLPattern|((url: URL) => boolean), options?: {
     /**
      * Whether to perform case-insensitive match.
      * [`ignoreCase`](https://playwright.dev/docs/api/class-pageassertions#page-assertions-to-have-url-option-ignore-case)
@@ -9602,8 +9878,62 @@ interface PageAssertions {
   }): Promise<void>;
 
   /**
-   * Makes the assertion check for the opposite condition. For example, this code tests that the page URL doesn't
-   * contain `"error"`:
+   * Asserts that the page body matches the given [accessibility snapshot](https://playwright.dev/docs/aria-snapshots).
+   *
+   * **Usage**
+   *
+   * ```js
+   * await page.goto('https://demo.playwright.dev/todomvc/');
+   * await expect(page).toMatchAriaSnapshot(`
+   *   - heading "todos"
+   *   - textbox "What needs to be done?"
+   * `);
+   * ```
+   *
+   * @param expected
+   * @param options
+   */
+  toMatchAriaSnapshot(expected: string, options?: {
+    /**
+     * Time to retry the assertion for in milliseconds. Defaults to `timeout` in `TestConfig.expect`.
+     */
+    timeout?: number;
+  }): Promise<void>;
+
+  /**
+   * Asserts that the page body matches the given [accessibility snapshot](https://playwright.dev/docs/aria-snapshots).
+   *
+   * Snapshot is stored in a separate `.aria.yml` file in a location configured by
+   * `expect.toMatchAriaSnapshot.pathTemplate` and/or `snapshotPathTemplate` properties in the configuration file.
+   *
+   * **Usage**
+   *
+   * ```js
+   * await expect(page).toMatchAriaSnapshot();
+   * await expect(page).toMatchAriaSnapshot({ name: 'home.aria.yml' });
+   * ```
+   *
+   * @param options
+   */
+  toMatchAriaSnapshot(options?: {
+    /**
+     * Name of the snapshot to store in the snapshot folder corresponding to this test. Generates sequential names if not
+     * specified.
+     */
+    name?: string;
+
+    /**
+     * Time to retry the assertion for in milliseconds. Defaults to `timeout` in `TestConfig.expect`.
+     */
+    timeout?: number;
+  }): Promise<void>;
+
+  /**
+   * Makes the assertion check for the opposite condition.
+   *
+   * **Usage**
+   *
+   * For example, this code tests that the page URL doesn't contain `"error"`:
    *
    * ```js
    * await expect(page).not.toHaveURL('error');
@@ -9766,6 +10096,12 @@ export interface TestInfoError {
   cause?: TestInfoError;
 
   /**
+   * Additional context for the error, such as the aria snapshot of the receiver at the time of an `expect(...)` matcher
+   * failure.
+   */
+  errorContext?: string;
+
+  /**
    * Error message. Set when [Error] (or its subclass) has been thrown.
    */
   message?: string;
@@ -9907,6 +10243,12 @@ export interface TestStepInfo {
    * @param description Optional description that will be reflected in a test report.
    */
   skip(condition: boolean, description?: string): void;
+
+  /**
+   * The full title path starting with the test file name, including the step titles. See also
+   * [testInfo.titlePath](https://playwright.dev/docs/api/class-testinfo#test-info-title-path).
+   */
+  titlePath: Array<string>;
 }
 
 /**
@@ -10118,6 +10460,25 @@ interface TestConfigWebServer {
    * of the command. Default to `"ignore"`.
    */
   stdout?: "pipe"|"ignore";
+
+  /**
+   * Consider command started only when given output has been produced.
+   */
+  wait?: {
+    /**
+     * Regular expression to wait for in the `stdout` of the command output. Named capture groups are stored in the
+     * environment, for example `/Listening on port (?<my_server_port>\d+)/` will store the port number in
+     * `process.env['MY_SERVER_PORT']`.
+     */
+    stdout?: RegExp;
+
+    /**
+     * Regular expression to wait for in the `stderr` of the command output. Named capture groups are stored in the
+     * environment, for example `/Listening on port (?<my_server_port>\d+)/` will store the port number in
+     * `process.env['MY_SERVER_PORT']`.
+     */
+    stderr?: RegExp;
+  };
 
   /**
    * How long to wait for the process to start up and be available in milliseconds. Defaults to 60000.

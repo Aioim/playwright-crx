@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-const minimumMajorNodeVersion = 14;
+const minimumMajorNodeVersion = 18;
 const currentNodeVersion = process.versions.node;
 const semver = currentNodeVersion.split('.');
 const [major] = [+semver[0]];
@@ -29,4 +29,4 @@ if (major < minimumMajorNodeVersion) {
   process.exit(1);
 }
 
-module.exports = require('./lib/inprocess');
+module.exports = require('./lib/coreBundle').inprocess.playwright;

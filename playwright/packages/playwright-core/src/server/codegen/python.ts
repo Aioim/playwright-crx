@@ -14,12 +14,13 @@
  * limitations under the License.
  */
 
+import { asLocator } from '@isomorphic/locatorGenerators';
+import { escapeWithQuotes, toSnakeCase } from '@isomorphic/stringUtils';
 import { sanitizeDeviceOptions, toClickOptionsForSourceCode, toKeyboardModifiers, toSignalMap } from './language';
-import { asLocator, escapeWithQuotes, toSnakeCase } from '../../utils';
 import { deviceDescriptors } from '../deviceDescriptors';
 
 import type { Language, LanguageGenerator, LanguageGeneratorOptions } from './types';
-import type { BrowserContextOptions } from '../../../types/types';
+import type { BrowserContextOptions } from '../../..';
 import type * as actions from '@recorder/actions';
 
 export class PythonLanguageGenerator implements LanguageGenerator {
@@ -100,6 +101,8 @@ export class PythonLanguageGenerator implements LanguageGenerator {
         const optionsString = formatOptions(options, false);
         return `${subject}.${this._asLocator(action.selector)}.${method}(${optionsString})`;
       }
+      case 'hover':
+        return `${subject}.${this._asLocator(action.selector)}.hover(${formatOptions({ position: action.position }, false)})`;
       case 'check':
         return `${subject}.${this._asLocator(action.selector)}.check()`;
       case 'uncheck':
@@ -128,7 +131,7 @@ export class PythonLanguageGenerator implements LanguageGenerator {
         return `expect(${subject}.${this._asLocator(action.selector)}).${assertion};`;
       }
       case 'assertSnapshot':
-        return `expect(${subject}.${this._asLocator(action.selector)}).to_match_aria_snapshot(${quote(action.snapshot)})`;
+        return `expect(${subject}.${this._asLocator(action.selector)}).to_match_aria_snapshot(${quote(action.ariaSnapshot)})`;
     }
   }
 

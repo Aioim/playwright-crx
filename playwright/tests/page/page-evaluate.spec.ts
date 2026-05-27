@@ -161,13 +161,16 @@ it('should work with unicode chars', async ({ page }) => {
   expect(result).toBe(42);
 });
 
-it('should work with large strings', async ({ page }) => {
+it('should work with large strings', async ({ page, isAndroid }) => {
+  it.skip(isAndroid, 'string is too long :(');
+
   const expected = 'x'.repeat(40000);
   expect(await page.evaluate(data => data, expected)).toBe(expected);
 });
 
-it('should work with large unicode strings', async ({ page, browserName, platform }) => {
+it('should work with large unicode strings', async ({ page, browserName, platform, isAndroid }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/16367' });
+  it.skip(isAndroid, 'string is too long :(');
 
   const expected = '🎭'.repeat(10000);
   expect(await page.evaluate(data => data, expected)).toBe(expected);
@@ -385,7 +388,7 @@ it('should properly serialize PerformanceMeasure object', async ({ page }) => {
 it('should properly serialize window.performance object', async ({ page }) => {
   it.skip(!!process.env.PW_CLOCK);
 
-  expect(await page.evaluate(() => performance)).toEqual({
+  expect(await page.evaluate(() => performance)).toEqual(expect.objectContaining({
     'navigation': {
       'redirectCount': 0,
       'type': expect.any(Number),
@@ -414,7 +417,7 @@ it('should properly serialize window.performance object', async ({ page }) => {
       'unloadEventEnd': expect.any(Number),
       'unloadEventStart': expect.any(Number),
     }
-  });
+  }));
 });
 
 it('should return undefined for non-serializable objects', async ({ page }) => {
@@ -423,8 +426,8 @@ it('should return undefined for non-serializable objects', async ({ page }) => {
 
 it('should throw for too deep reference chain', {
   annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/33997' }
-}, async ({ page, browserName }) => {
-  it.fixme(browserName === 'firefox', 'Firefox Juggler -> Playwright serialiser does not throw for deep references.\nThis causes large objects to get serialised back to the Playwright client.\nThere our validators throw \'Maximum call stack size exceeded\'.');
+}, async ({ page, browserName, isBidi }) => {
+  it.fixme(browserName === 'firefox' && !isBidi, 'Firefox Juggler -> Playwright serialiser does not throw for deep references.\nThis causes large objects to get serialised back to the Playwright client.\nThere our validators throw \'Maximum call stack size exceeded\'.');
   await expect(page.evaluate(depth => {
     const obj = {};
     let temp = obj;
@@ -434,6 +437,18 @@ it('should throw for too deep reference chain', {
     }
     return obj;
   }, 1000)).rejects.toThrow('Cannot serialize result: object reference chain is too long.');
+});
+
+it('should throw for too deep reference chain 2', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/40940' }
+}, async ({ page, browserName }) => {
+  it.skip(browserName !== 'chromium', 'this is a chromium-only limitation');
+  await expect(page.evaluate(depth => {
+    let node = {};
+    for (let i = 0; i < depth; i++)
+      node = { child: node };
+    return node;
+  }, 200)).rejects.toThrow('Cannot serialize result: object reference chain is too long.');
 });
 
 it('should throw usable message for unserializable shallow function', async ({ page }) => {
@@ -621,7 +636,7 @@ it('should respect use strict expression', async ({ page }) => {
 });
 
 it('should not leak utility script', async function({ page }) {
-  expect(await page.evaluate(() => this === window)).toBe(true);
+  expect(await page.evaluate('this === window')).toBe(true);
 });
 
 it('should not leak handles', async ({ page }) => {

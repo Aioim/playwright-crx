@@ -144,45 +144,6 @@ runtimeTypes.AuxData = {
   name: t.Optional(t.String),
 };
 
-const axTypes = {};
-axTypes.AXTree = {
-  role: t.String,
-  name: t.String,
-  children: t.Optional(t.Array(t.Recursive(axTypes, 'AXTree'))),
-
-  selected: t.Optional(t.Boolean),
-  focused: t.Optional(t.Boolean),
-  pressed: t.Optional(t.Boolean),
-  focusable: t.Optional(t.Boolean),
-  haspopup: t.Optional(t.String),
-  required: t.Optional(t.Boolean),
-  invalid: t.Optional(t.Boolean),
-  modal: t.Optional(t.Boolean),
-  editable: t.Optional(t.Boolean),
-  busy: t.Optional(t.Boolean),
-  multiline: t.Optional(t.Boolean),
-  readonly: t.Optional(t.Boolean),
-  checked: t.Optional(t.Enum(['mixed', true])),
-  expanded: t.Optional(t.Boolean),
-  disabled: t.Optional(t.Boolean),
-  multiselectable: t.Optional(t.Boolean),
-
-  value: t.Optional(t.String),
-  description: t.Optional(t.String),
-
-  roledescription: t.Optional(t.String),
-  valuetext: t.Optional(t.String),
-  orientation: t.Optional(t.String),
-  autocomplete: t.Optional(t.String),
-  keyshortcuts: t.Optional(t.String),
-
-  level: t.Optional(t.Number),
-
-  tag: t.Optional(t.String),
-
-  foundObject: t.Optional(t.Boolean),
-}
-
 const networkTypes = {};
 
 networkTypes.HTTPHeader = {
@@ -241,9 +202,6 @@ const Browser = {
       uuid: t.String,
       canceled: t.Optional(t.Boolean),
       error: t.Optional(t.String),
-    },
-    'videoRecordingFinished': {
-      screencastId: t.String,
     },
   },
 
@@ -469,13 +427,13 @@ const Browser = {
         contrast: t.Nullable(t.Enum(['less', 'more', 'custom', 'no-preference'])),
       },
     },
-    'setVideoRecordingOptions': {
+    'setScreencastOptions': {
       params: {
         browserContextId: t.Optional(t.String),
         options: t.Optional({
-          dir: t.String,
           width: t.Number,
           height: t.Number,
+          quality: t.Number,
         }),
       },
     },
@@ -673,6 +631,7 @@ const Page = {
       frameId: t.String,
       message: t.String,
       stack: t.String,
+      location: runtimeTypes.ScriptLocation,
     },
     'frameAttached': {
       frameId: t.String,
@@ -736,10 +695,6 @@ const Page = {
       workerId: t.String,
       message: t.String,
     },
-    'videoRecordingStarted': {
-      screencastId: t.String,
-      file: t.String,
-    },
     'webSocketCreated': {
       frameId: t.String,
       wsid: t.String,
@@ -772,6 +727,7 @@ const Page = {
       data: t.String,
       deviceWidth: t.Number,
       deviceHeight: t.Number,
+      timestamp: t.Number,
     },
   },
 
@@ -798,6 +754,7 @@ const Page = {
     'setViewportSize': {
       params: {
         viewportSize: t.Nullable(pageTypes.Size),
+        deviceScaleFactor: t.Optional(t.Number),
       },
     },
     'setZoom': {
@@ -872,7 +829,6 @@ const Page = {
       },
     },
     'reload': {
-      params: { },
     },
     'adoptNode': {
       params: {
@@ -960,7 +916,6 @@ const Page = {
       }
     },
     'crash': {
-      params: {}
     },
     'handleDialog': {
       params: {
@@ -987,37 +942,14 @@ const Page = {
         height: t.Number,
         quality: t.Number,
       },
-      returns: {
-        screencastId: t.String,
-      },
     },
     'screencastFrameAck': {
-      params: {
-        screencastId: t.String,
-      },
     },
     'stopScreencast': {
     },
   },
 };
 
-
-const Accessibility = {
-  targets: ['page'],
-  types: axTypes,
-  events: {},
-  methods: {
-    'getFullAXTree': {
-      params: {
-        objectId: t.Optional(t.String),
-      },
-      returns: {
-        tree: axTypes.AXTree
-      },
-    }
-  }
-}
-
 export const protocol = {
-  domains: {Browser, Heap, Page, Runtime, Network, Accessibility},
+  domains: {Browser, Heap, Page, Runtime, Network},
 };

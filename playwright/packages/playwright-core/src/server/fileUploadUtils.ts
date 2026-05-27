@@ -17,9 +17,8 @@
 import fs from 'fs';
 import path from 'path';
 
-import { assert } from '../utils/isomorphic/assert';
-import { mime } from '../utilsBundle';
-
+import mime from 'mime';
+import { assert } from '@isomorphic/assert';
 import type { WritableStreamDispatcher } from './dispatchers/writableStreamDispatcher';
 import type { InputFilesItems } from './dom';
 import type { Frame } from './frames';
@@ -34,7 +33,7 @@ async function filesExceedUploadLimit(files: string[]) {
   return sizes.reduce((total, size) => total + size, 0) >= fileUploadSizeLimit;
 }
 
-export async function prepareFilesForUpload(frame: Frame, params: channels.ElementHandleSetInputFilesParams): Promise<InputFilesItems> {
+export async function prepareFilesForUpload(frame: Frame, params: Omit<channels.ElementHandleSetInputFilesParams, 'timeout'>): Promise<InputFilesItems> {
   const { payloads, streams, directoryStream } = params;
   let { localPaths, localDirectory } = params;
 

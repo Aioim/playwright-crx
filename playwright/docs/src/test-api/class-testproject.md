@@ -99,8 +99,10 @@ export default defineConfig({
     - `scale` ?<[ScreenshotScale]<"css"|"device">> See [`option: Page.screenshot.scale`] in [`method: Page.screenshot`]. Defaults to `"css"`.
     - `stylePath` ?<[string]|[Array]<[string]>> See [`option: Page.screenshot.style`] in [`method: Page.screenshot`].
     - `pathTemplate` ?<[string]> A template controlling location of the screenshots. See [`property: TestProject.snapshotPathTemplate`] for details.
+    - `timeout` ?<[int]> Default timeout for [`method: PageAssertions.toHaveScreenshot#1`] in milliseconds, defaults to the global expect timeout. Setting to `0` disables the timeout.
   - `toMatchAriaSnapshot` ?<[Object]> Configuration for the [`method: LocatorAssertions.toMatchAriaSnapshot#2`] method.
     - `pathTemplate` ?<[string]> A template controlling location of the aria snapshots. See [`property: TestProject.snapshotPathTemplate`] for details.
+    - `children` ?<["contain" | "equal" | "deep-equal"]> Controls how children of the snapshot root are matched against the actual accessibility tree. This is equivalent to adding a `/children` property at the top of every aria snapshot template. Individual snapshots can override this by including an explicit `/children` property.
   - `toMatchSnapshot` ?<[Object]> Configuration for the [`method: SnapshotAssertions.toMatchSnapshot#1`] method.
     - `threshold` ?<[float]> an acceptable perceived color difference between the same pixel in compared images, ranging from `0` (strict) and `1` (lax). `"pixelmatch"` comparator computes color difference in [YIQ color space](https://en.wikipedia.org/wiki/YIQ) and defaults `threshold` value to `0.2`.
     - `maxDiffPixels` ?<[int]> an acceptable amount of pixels that could be different, unset by default.
@@ -134,7 +136,7 @@ Filter to only run tests with a title matching one of the patterns. For example,
 * since: v1.10
 - type: ?<[RegExp]|[Array]<[RegExp]>>
 
-Filter to only run tests with a title **not** matching one of the patterns. This is the opposite of [`property: TestProject.grep`]. Also available globally and in the [command line](../test-cli.md) with the `--grep-invert` option.
+Filter to only run tests with a title **not** matching any of the patterns. This is the opposite of [`property: TestProject.grep`]. Also available globally and in the [command line](../test-cli.md) with the `--grep-invert` option.
 
 `grepInvert` option is also useful for [tagging tests](../test-annotations.md#tag-tests).
 
@@ -392,6 +394,48 @@ export default defineConfig({
 ```
 
 Use [`property: TestConfig.use`] to change this option for all projects.
+
+## property: TestProject.webServer = %%-test-config-web-server-options-%%
+* since: v1.61
+
+Launch a development web server (or multiple) before running tests in this project. See [`property: TestConfig.webServer`] for the shape of each entry.
+
+A per-project `webServer` is only launched when the project is selected (either directly via `--project` or indirectly through dependencies). This is useful when only a subset of your projects need a local backend, while others run against a deployed environment.
+
+Per-project web servers are launched in addition to any top-level [`property: TestConfig.webServer`].
+
+**Usage**
+
+```js title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  projects: [
+    {
+      name: 'functional',
+      grepInvert: /@smoke/,
+      use: { baseURL: 'http://localhost:3000' },
+      webServer: [
+        {
+          command: 'npm run start',
+          url: 'http://localhost:3000',
+          reuseExistingServer: !process.env.CI,
+        },
+        {
+          command: 'npm run mock-server',
+          port: 3001,
+          reuseExistingServer: !process.env.CI,
+        },
+      ],
+    },
+    {
+      name: 'smoke',
+      grep: /@smoke/,
+      use: { baseURL: 'https://production.app.com' },
+    },
+  ],
+});
+```
 
 ## property: TestProject.workers
 * since: v1.52

@@ -14,15 +14,15 @@
  * limitations under the License.
  */
 
-import { asLocator } from '../utils';
-import { InvalidSelectorError,  splitSelectorByFrame, stringifySelector, visitAllSelectorParts } from '../utils/isomorphic/selectorParser';
+import { InvalidSelectorError,  splitSelectorByFrame, stringifySelector, visitAllSelectorParts } from '@isomorphic/selectorParser';
+import { asLocator } from '@isomorphic/locatorGenerators';
 
 import type { ElementHandle, FrameExecutionContext } from './dom';
 import type { Frame } from './frames';
 import type { InjectedScript } from '@injected/injectedScript';
 import type { JSHandle } from './javascript';
 import type * as types from './types';
-import type { ParsedSelector } from '../utils/isomorphic/selectorParser';
+import type { ParsedSelector } from '@isomorphic/selectorParser';
 
 
 export type SelectorInfo = {
@@ -49,7 +49,7 @@ export class FrameSelectors {
     return this.frame._page.browserContext.selectors().parseSelector(selector, strict);
   }
 
-  async query(selector: string, options?: types.StrictOptions, scope?: ElementHandle): Promise<ElementHandle<Element> | null> {
+  async query(selector: string, options?: types.StrictOptions & { mainWorld?: boolean }, scope?: ElementHandle): Promise<ElementHandle<Element> | null> {
     const resolved = await this.resolveInjectedForSelector(selector, options, scope);
     // Be careful, |this.frame| can be different from |resolved.frame|.
     if (!resolved)
@@ -62,7 +62,7 @@ export class FrameSelectors {
       handle.dispose();
       return null;
     }
-    return adoptIfNeeded(elementHandle, await resolved.frame._mainContext());
+    return adoptIfNeeded(elementHandle, await resolved.frame.mainContext());
   }
 
   async queryArrayInMainWorld(selector: string, scope?: ElementHandle): Promise<JSHandle<Element[]>> {
@@ -71,17 +71,22 @@ export class FrameSelectors {
     if (!resolved)
       throw new Error(`Failed to find frame for selector "${selector}"`);
     return await resolved.injected.evaluateHandle((injected, { info, scope }) => {
-      return injected.querySelectorAll(info.parsed, scope || document);
+      const elements = injected.querySelectorAll(info.parsed, scope || document);
+      injected.checkDeprecatedSelectorUsage(info.parsed, elements);
+      return elements;
     }, { info: resolved.info, scope: resolved.scope });
   }
 
-  async queryCount(selector: string): Promise<number> {
+  async queryCount(selector: string, options: any): Promise<number> {
     const resolved = await this.resolveInjectedForSelector(selector);
     // Be careful, |this.frame| can be different from |resolved.frame|.
     if (!resolved)
       throw new Error(`Failed to find frame for selector "${selector}"`);
+    await options.__testHookBeforeQuery?.();
     return await resolved.injected.evaluate((injected, { info }) => {
-      return injected.querySelectorAll(info.parsed, document).length;
+      const elements = injected.querySelectorAll(info.parsed, document);
+      injected.checkDeprecatedSelectorUsage(info.parsed, elements);
+      return elements.length;
     }, { info: resolved.info });
   }
 
@@ -91,15 +96,17 @@ export class FrameSelectors {
     if (!resolved)
       return [];
     const arrayHandle = await resolved.injected.evaluateHandle((injected, { info, scope }) => {
-      return injected.querySelectorAll(info.parsed, scope || document);
+      const elements = injected.querySelectorAll(info.parsed, scope || document);
+      injected.checkDeprecatedSelectorUsage(info.parsed, elements);
+      return elements;
     }, { info: resolved.info, scope: resolved.scope });
 
-    const properties = await arrayHandle.getProperties();
+    const properties = await arrayHandle.internalGetProperties();
     arrayHandle.dispose();
 
     // Note: adopting elements one by one may be slow. If we encounter the issue here,
     // we might introduce 'useMainContext' option or similar to speed things up.
-    const targetContext = await resolved.frame._mainContext();
+    const targetContext = await resolved.frame.mainContext();
     const result: Promise<ElementHandle<Element>>[] = [];
     for (const property of properties.values()) {
       const elementHandle = property.asElement() as ElementHandle<Element>;
@@ -118,10 +125,8 @@ export class FrameSelectors {
     const match = body.match(/^f(\d+)e\d+$/);
     if (!match)
       return frame;
-    const frameIndex = +match[1];
-    const page = this.frame._page;
-    const frameId = page.lastSnapshotFrameIds[frameIndex - 1];
-    const jumptToFrame = frameId ? page.frameManager.frame(frameId) : null;
+    const frameSeq = +match[1];
+    const jumptToFrame = this.frame._page.frameManager.frames().find(frame => frame.seq === frameSeq);
     if (!jumptToFrame)
       throw new InvalidSelectorError(`Invalid frame in aria-ref selector "${selector}"`);
     return jumptToFrame;
@@ -134,7 +139,7 @@ export class FrameSelectors {
     for (const chunk of frameChunks) {
       visitAllSelectorParts(chunk, (part, nested) => {
         if (nested && part.name === 'internal:control' && part.body === 'enter-frame') {
-          const locator = asLocator(this.frame._page.attribution.playwright.options.sdkLanguage, selector);
+          const locator = asLocator(this.frame._page.browserContext._browser.sdkLanguage(), selector);
           throw new InvalidSelectorError(`Frame locators are not allowed inside composite locators, while querying "${locator}"`);
         }
       });
@@ -143,7 +148,7 @@ export class FrameSelectors {
     for (let i = 0; i < frameChunks.length - 1; ++i) {
       const info = this._parseSelector(frameChunks[i], options);
       frame = this._jumpToAriaRefFrameIfNeeded(selector, info, frame);
-      const context = await frame._context(info.world);
+      const context = await frame.context(info.world);
       const injectedScript = await context.injectedScript();
       const handle = await injectedScript.evaluateHandle((injected, { info, scope, selectorString }) => {
         const element = injected.querySelector(info.parsed, scope || document, info.strict);
@@ -173,7 +178,7 @@ export class FrameSelectors {
     // Be careful, |this.frame| can be different from |resolved.frame|.
     if (!resolved)
       return;
-    const context = await resolved.frame._context(options?.mainWorld ? 'main' : resolved.info.world);
+    const context = await resolved.frame.context(options?.mainWorld ? 'main' : resolved.info.world);
     const injected = await context.injectedScript();
     return { injected, info: resolved.info, frame: resolved.frame, scope: resolved.scope };
   }

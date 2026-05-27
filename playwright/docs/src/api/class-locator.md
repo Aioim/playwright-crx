@@ -72,7 +72,7 @@ texts = page.get_by_role("link").all_inner_texts()
 ```
 
 ```java
-String[] texts = page.getByRole(AriaRole.LINK).allInnerTexts();
+List<String> texts = page.getByRole(AriaRole.LINK).allInnerTexts();
 ```
 
 ```csharp
@@ -104,7 +104,7 @@ texts = page.get_by_role("link").all_text_contents()
 ```
 
 ```java
-String[] texts = page.getByRole(AriaRole.LINK).allTextContents();
+List<String> texts = page.getByRole(AriaRole.LINK).allTextContents();
 ```
 
 ```csharp
@@ -133,11 +133,11 @@ Locator button = page.getByRole(AriaRole.BUTTON).and(page.getByTitle("Subscribe"
 ```
 
 ```python async
-button = page.get_by_role("button").and_(page.getByTitle("Subscribe"))
+button = page.get_by_role("button").and_(page.get_by_title("Subscribe"))
 ```
 
 ```python sync
-button = page.get_by_role("button").and_(page.getByTitle("Subscribe"))
+button = page.get_by_role("button").and_(page.get_by_title("Subscribe"))
 ```
 
 ```csharp
@@ -206,11 +206,36 @@ Below is the HTML markup and the respective ARIA snapshot:
     - link "About"
 ```
 
+An AI-optimized snapshot, controlled by [`option: Locator.ariaSnapshot.mode`], is different from a default snapshot:
+1. Includes element references `[ref=e2]`.
+2. Does not wait for an element matching the locator, and throws when no elements match.
+3. Includes snapshots of `<iframe>`s inside the target.
+
+### option: Locator.ariaSnapshot.mode
+* since: v1.59
+- `mode` <[AriaSnapshotMode]<"ai"|"default">>
+
+When set to `"ai"`, returns a snapshot optimized for AI consumption. Defaults to `"default"`. See details for more information.
+
 ### option: Locator.ariaSnapshot.timeout = %%-input-timeout-%%
 * since: v1.49
 
 ### option: Locator.ariaSnapshot.timeout = %%-input-timeout-js-%%
 * since: v1.49
+
+### option: Locator.ariaSnapshot.depth
+* since: v1.59
+- `depth` <[int]>
+
+When specified, limits the depth of the snapshot.
+
+### option: Locator.ariaSnapshot.boxes
+* since: v1.60
+- `boxes` <[boolean]>
+
+When `true`, appends each element's bounding box as `[box=x,y,width,height]` to the snapshot. Coordinates are
+relative to the viewport, in CSS pixels, as returned by [`Element.getBoundingClientRect()`](https://developer.mozilla.org/en-US/docs/Web/API/Element/getBoundingClientRect).
+Defaults to `false`.
 
 ## async method: Locator.blur
 * since: v1.28
@@ -226,6 +251,8 @@ Calls [blur](https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/blur) 
 ## async method: Locator.boundingBox
 * since: v1.14
 - returns: <[null]|[Object]>
+  * alias: BoundingBox
+  * alias-csharp: LocatorBoundingBoxResult
   - `x` <[float]> the x coordinate of the element in pixels.
   - `y` <[float]> the y coordinate of the element in pixels.
   - `width` <[float]> the width of the element in pixels.
@@ -497,6 +524,9 @@ await page.Locator("canvas").ClickAsync(new() {
 ### option: Locator.click.trial = %%-input-trial-with-modifiers-%%
 * since: v1.14
 
+### option: Locator.click.steps = %%-input-mousemove-steps-%%
+* since: v1.57
+
 ## async method: Locator.count
 * since: v1.14
 - returns: <[int]>
@@ -580,6 +610,9 @@ When all steps combined have not finished during the specified [`option: timeout
 ### option: Locator.dblclick.trial = %%-input-trial-with-modifiers-%%
 * since: v1.14
 
+### option: Locator.dblclick.steps = %%-input-mousemove-steps-%%
+* since: v1.57
+
 ## method: Locator.describe
 * since: v1.53
 - returns: <[Locator]>
@@ -619,6 +652,64 @@ await button.ClickAsync();
 - `description` <[string]>
 
 Locator description.
+
+## method: Locator.description
+* since: v1.57
+* langs: python, java, csharp
+- returns: <[null]|[string]>
+
+Returns locator description previously set with [`method: Locator.describe`]. Returns `null` if no custom description has been set.
+
+**Usage**
+
+```python async
+button = page.get_by_role("button").describe("Subscribe button")
+print(button.description())  # "Subscribe button"
+
+input = page.get_by_role("textbox")
+print(input.description())  # None
+```
+
+```python sync
+button = page.get_by_role("button").describe("Subscribe button")
+print(button.description())  # "Subscribe button"
+
+input = page.get_by_role("textbox")
+print(input.description())  # None
+```
+
+```java
+Locator button = page.getByRole(AriaRole.BUTTON).describe("Subscribe button");
+System.out.println(button.description()); // "Subscribe button"
+
+Locator input = page.getByRole(AriaRole.TEXTBOX);
+System.out.println(input.description()); // null
+```
+
+```csharp
+var button = Page.GetByRole(AriaRole.Button).Describe("Subscribe button");
+Console.WriteLine(button.Description()); // "Subscribe button"
+
+var input = Page.GetByRole(AriaRole.Textbox);
+Console.WriteLine(input.Description()); // null
+```
+
+## method: Locator.description
+* since: v1.57
+* langs: js
+- returns: <[null]|[string]>
+
+Returns locator description previously set with [`method: Locator.describe`]. Returns `null` if no custom description has been set. Prefer [`method: Locator.toString`] for a human-readable representation, as it uses the description when available.
+
+**Usage**
+
+```js
+const button = page.getByRole('button').describe('Subscribe button');
+console.log(button.description()); // "Subscribe button"
+
+const input = page.getByRole('textbox');
+console.log(input.description()); // null
+```
 
 ## async method: Locator.dispatchEvent
 * since: v1.14
@@ -820,6 +911,57 @@ Locator of the element to drag to.
 
 ### option: Locator.dragTo.targetPosition = %%-input-target-position-%%
 * since: v1.18
+
+### option: Locator.dragTo.steps = %%-input-drag-steps-%%
+* since: v1.57
+
+## async method: Locator.drop
+* since: v1.60
+
+Simulate an external drag-and-drop of files or clipboard-like data onto this locator.
+
+**Details**
+
+Dispatches the native `dragenter`, `dragover`, and `drop` events at the center of the
+target element with a synthetic [DataTransfer] carrying the provided files and/or data
+entries. Works cross-browser by constructing the [DataTransfer] in the page context.
+
+If the target element's `dragover` listener does not call `preventDefault()`, the target
+is considered to have rejected the drop: Playwright dispatches `dragleave` and this
+method throws.
+
+**Usage**
+
+Drop a file buffer onto an upload area:
+
+```js
+await page.locator('#dropzone').drop({
+  files: { name: 'note.txt', mimeType: 'text/plain', buffer: Buffer.from('hello') },
+});
+```
+
+Drop plain text and a URL together:
+
+```js
+await page.locator('#dropzone').drop({
+  data: {
+    'text/plain': 'hello world',
+    'text/uri-list': 'https://example.com',
+  },
+});
+```
+
+### param: Locator.drop.payload = %%-drop-payload-%%
+* since: v1.60
+
+### option: Locator.drop.position = %%-input-position-%%
+* since: v1.60
+
+### option: Locator.drop.timeout = %%-input-timeout-%%
+* since: v1.60
+
+### option: Locator.drop.timeout = %%-input-timeout-js-%%
+* since: v1.60
 
 ## async method: Locator.elementHandle
 * since: v1.14
@@ -1300,6 +1442,8 @@ Attribute name to get the value for.
 
 ### option: Locator.getByRole.exact = %%-locator-get-by-role-option-exact-%%
 
+### option: Locator.getByRole.description = %%-locator-get-by-role-option-description-%%
+
 ## method: Locator.getByTestId
 * since: v1.27
 - returns: <[Locator]>
@@ -1329,10 +1473,35 @@ Attribute name to get the value for.
 
 ### option: Locator.getByTitle.exact = %%-locator-get-by-text-exact-%%
 
+## async method: Locator.hideHighlight
+* since: v1.60
+
+Hides the element highlight previously added by [`method: Locator.highlight`].
+
 ## async method: Locator.highlight
 * since: v1.20
+- returns: <[Disposable]>
 
 Highlight the corresponding element(s) on the screen. Useful for debugging, don't commit the code that uses [`method: Locator.highlight`].
+
+### option: Locator.highlight.style
+* since: v1.60
+* langs: js
+- `style` <[string]|[Object]<[string], [string]|[number]>>
+
+Inline CSS applied to the highlight overlay, e.g.
+
+```js
+await locator.highlight({ style: 'outline: 2px dashed red' });
+await locator.highlight({ style: { color: 'red' } });
+```
+
+### option: Locator.highlight.style
+* since: v1.60
+* langs: java, python, csharp
+- `style` <[string]>
+
+Additional inline CSS applied to the highlight overlay, e.g. `"outline: 2px dashed red"`.
 
 ## async method: Locator.hover
 * since: v1.14
@@ -1736,6 +1905,12 @@ var banana = await page.GetByRole(AriaRole.Listitem).Last(1);
 ### option: Locator.locator.hasNotText = %%-locator-option-has-not-text-%%
 * since: v1.33
 
+## async method: Locator.normalize
+* since: v1.59
+- returns: <[Locator]>
+
+Returns a new locator that uses best practices for referencing the matched element, prioritizing test ids,
+aria roles, and other user-facing attributes over CSS selectors. This is useful for converting implementation-detail selectors into more resilient, human-readable locators.
 
 ## method: Locator.nth
 * since: v1.14
@@ -1928,6 +2103,8 @@ In most cases, you should use [`method: Locator.fill`] instead. You only need to
 
 Focuses the element, and then sends a `keydown`, `keypress`/`input`, and `keyup` event for each character in the text.
 
+When [`option: namedKeys`] is `true`, anything inside `{}` is treated as a key name (same format as [`method: Locator.press`]).
+
 To press a special key, like `Control` or `ArrowDown`, use [`method: Locator.press`].
 
 **Usage**
@@ -1935,26 +2112,43 @@ To press a special key, like `Control` or `ArrowDown`, use [`method: Locator.pre
 ```js
 await locator.pressSequentially('Hello'); // Types instantly
 await locator.pressSequentially('World', { delay: 100 }); // Types slower, like a user
+
+// Mix characters and named keys
+await locator.pressSequentially('Hello{Enter}World', { namedKeys: true });
+// Use modifier combos
+await locator.pressSequentially('{Control+A}{Delete}Hello', { namedKeys: true });
 ```
 
 ```java
 locator.pressSequentially("Hello"); // Types instantly
 locator.pressSequentially("World", new Locator.pressSequentiallyOptions().setDelay(100)); // Types slower, like a user
+
+// Mix characters and named keys
+locator.pressSequentially("Hello{Enter}World", new Locator.pressSequentiallyOptions().setNamedKeys(true));
 ```
 
 ```python async
 await locator.press_sequentially("hello") # types instantly
 await locator.press_sequentially("world", delay=100) # types slower, like a user
+
+# Mix characters and named keys
+await locator.press_sequentially("Hello{Enter}World", named_keys=True)
 ```
 
 ```python sync
 locator.press_sequentially("hello") # types instantly
 locator.press_sequentially("world", delay=100) # types slower, like a user
+
+# Mix characters and named keys
+locator.press_sequentially("Hello{Enter}World", named_keys=True)
 ```
 
 ```csharp
 await locator.PressSequentiallyAsync("Hello"); // Types instantly
 await locator.PressSequentiallyAsync("World", new() { Delay = 100 }); // Types slower, like a user
+
+// Mix characters and named keys
+await locator.PressSequentiallyAsync("Hello{Enter}World", new() { NamedKeys = true });
 ```
 
 An example of typing into a text field and then submitting the form:
@@ -1993,13 +2187,20 @@ await locator.PressAsync("Enter");
 * since: v1.38
 - `text` <[string]>
 
-String of characters to sequentially press into a focused element.
+String of characters to sequentially press into a focused element. When [`option: namedKeys`] is `true`, anything inside `{}` is treated as a key name (same format as [`method: Locator.press`]).
 
 ### option: Locator.pressSequentially.delay
 * since: v1.38
 - `delay` <[float]>
 
 Time to wait between key presses in milliseconds. Defaults to 0.
+
+### option: Locator.pressSequentially.namedKeys
+* since: v1.61
+- `namedKeys` <[boolean]>
+
+When [`option: namedKeys`] is `true`, anything inside `{}` is treated as a key name (same format as [`method: Locator.press`]).
+Use `{{` to type a literal brace character. Defaults to `false`.
 
 ### option: Locator.pressSequentially.noWaitAfter = %%-input-no-wait-after-removed-%%
 * since: v1.38
@@ -2419,6 +2620,7 @@ This method expects [Locator] to point to an
 ### option: Locator.setInputFiles.timeout = %%-input-timeout-js-%%
 * since: v1.14
 
+
 ## async method: Locator.tap
 * since: v1.14
 
@@ -2476,6 +2678,13 @@ If you need to assert text on the page, prefer [`method: LocatorAssertions.toHav
 
 ### option: Locator.textContent.timeout = %%-input-timeout-js-%%
 * since: v1.14
+
+## method: Locator.toString
+* since: v1.57
+* langs: js
+- returns: <[string]>
+
+Returns a human-readable representation of the locator, using the [`method: Locator.description`] if one exists; otherwise, it generates a string based on the locator's selector.
 
 ## async method: Locator.type
 * since: v1.14

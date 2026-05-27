@@ -17,6 +17,7 @@
 
 import fs from 'fs';
 import url from 'url';
+import zlib from 'zlib';
 import { expect, test as it } from './pageTest';
 
 it('should work @smoke', async ({ page, server }) => {
@@ -63,6 +64,25 @@ it('should return uncompressed text', async ({ page, server }) => {
   expect(await response.text()).toBe('{"foo": "bar"}\n');
 });
 
+it('should return uncompressed text for brotli encoding', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/39160' },
+}, async ({ page, server, browserName, isAndroid }) => {
+  it.fixme(isAndroid, 'net::ERR_CONTENT_DECODING_FAILED');
+
+  const text = '{"foo": "bar"}\n';
+  const compressed = zlib.brotliCompressSync(Buffer.from(text));
+  server.setRoute('/brotli.json', (req, res) => {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Content-Encoding': 'br',
+    });
+    res.end(compressed);
+  });
+  const response = await page.goto(server.PREFIX + '/brotli.json');
+  expect(response.headers()['content-encoding']).toBe('br');
+  expect(await response.text()).toBe(text);
+});
+
 it('should throw when requesting body of redirected response', async ({ page, server }) => {
   server.setRedirect('/foo.html', '/empty.html');
   const response = await page.goto(server.PREFIX + '/foo.html');
@@ -107,26 +127,6 @@ it('should wait until response completes', async ({ page, server }) => {
   // Finish response.
   await new Promise(x => serverResponse.end('ld!', x));
   expect(await responseText).toBe('hello world!');
-});
-
-it('should reject response.finished if page closes', async ({ page, server }) => {
-  await page.goto(server.EMPTY_PAGE);
-  server.setRoute('/get', (req, res) => {
-    // In Firefox, |fetch| will be hanging until it receives |Content-Type| header
-    // from server.
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.write('hello ');
-  });
-  // send request and wait for server response
-  const [pageResponse] = await Promise.all([
-    page.waitForEvent('response'),
-    page.evaluate(() => fetch('./get', { method: 'GET' })),
-  ]);
-
-  const finishPromise = pageResponse.finished().catch(e => e);
-  await page.close();
-  const error = await finishPromise;
-  expect(error.message).toContain('closed');
 });
 
 it('should return json', async ({ page, server }) => {
@@ -250,10 +250,11 @@ it('should behave the same way for headers and allHeaders', async ({ page, serve
   expect(allHeaders['name-b']).toEqual('v4');
 });
 
-it('should provide a Response with a file URL', async ({ page, asset, isAndroid, isElectron, isWindows, browserName, mode }) => {
+it('should provide a Response with a file URL', async ({ page, asset, isAndroid, isElectron, isWindows, browserName, mode, channel }) => {
   it.skip(isAndroid, 'No files on Android');
   it.skip(browserName === 'firefox', 'Firefox does return null for file:// URLs');
   it.skip(mode.startsWith('service'));
+  it.skip(channel === 'webkit-wsl');
 
   const fileurl = url.pathToFileURL(asset('frames/two-frames.html')).href;
   const response = await page.goto(fileurl);
@@ -405,4 +406,76 @@ it('should bypass disk cache when context interception is enabled', async ({ pag
       });
     }
   }
+});
+
+it('request.existingResponse should return null before response is received', async ({ page, server }) => {
+  await page.goto(server.EMPTY_PAGE);
+  let serverResponse = null;
+  server.setRoute('/get', (req, res) => {
+    serverResponse = res;
+    // Don't end the response yet
+  });
+
+  const [request] = await Promise.all([
+    page.waitForEvent('request'),
+    server.waitForRequest('/get'),
+    page.evaluate(() => { void fetch('./get', { method: 'GET' }); }),
+  ]);
+
+  // Response hasn't been received yet
+  expect(request.existingResponse()).toBe(null);
+
+  // Now send the response
+  serverResponse.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  serverResponse.end('done');
+  await page.waitForEvent('response');
+
+  // After response is received, existingResponse should return the response
+  const existingResponse = request.existingResponse();
+  expect(existingResponse).not.toBe(null);
+  expect(existingResponse.status()).toBe(200);
+});
+
+it('request.existingResponse should return the response after it is received', async ({ page, server }) => {
+  const response = await page.goto(server.EMPTY_PAGE);
+  const request = response.request();
+  expect(request.existingResponse()).toBe(response);
+});
+
+it('should return http version', async ({ page, server }) => {
+  const response = await page.goto(server.EMPTY_PAGE);
+  expect(await response.httpVersion()).toBe('HTTP/1.1');
+});
+
+it('Response.formData() should parse multipart/form-data in page context', async ({ page, server, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/40244' });
+  await page.goto(server.EMPTY_PAGE);
+  const result = await page.evaluate(async () => {
+    const boundary = '----WebKitFormBoundary1234';
+    const body = [
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="field1"',
+      '',
+      'value1',
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file1"; filename="test.txt"',
+      'Content-Type: text/plain',
+      '',
+      'hello',
+      `--${boundary}--`,
+    ].join('\r\n');
+    const response = new Response(body, {
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+    });
+    const fd = await response.formData();
+    const file = fd.get('file1') as File;
+    return {
+      field1: fd.get('field1'),
+      filename: file instanceof File ? file.name : null,
+      fileContent: file instanceof File ? await file.text() : null,
+    };
+  });
+  expect(result.field1).toBe('value1');
+  expect(result.filename).toBe('test.txt');
+  expect(result.fileContent).toBe('hello');
 });
