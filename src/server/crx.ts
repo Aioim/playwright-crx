@@ -239,6 +239,7 @@ export class CrxApplication extends SdkObject {
       const recorderParams = {
         language: options?.language ?? 'playwright-test',
         mode: mode === 'none' ? undefined : mode,
+        hideToolbar: true,
         ...otherOptions
       };
       Recorder.show(this._context, recorder => this._createRecorderApp(recorder), recorderParams);
